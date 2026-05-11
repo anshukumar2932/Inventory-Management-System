@@ -1,0 +1,79 @@
+# --- Python ---
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+
+# --- Virtual Environment ---
+venv/
+env/
+.venv/
+*.venv
+
+# --- Environment & Secrets ---
+.env
+.env.local
+.env.production
+.env.development
+
+# --- IDE & Editor ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-*
+
+# --- Django ---
+db.sqlite3
+*.sqlite3
+media/
+staticfiles/
+static_collected/
+/media/
+
+# --- Celery ---
+celerybeat-schedule*
+celerybeat.pid
+
+# --- Logs & Reports ---
+*.log
+reports/generated/
+reports/output/
+notifications/output/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# --- Frontend (Vite / React) ---
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+frontend/*.tsbuildinfo
+frontend/*.js.map
+
+# --- Backend node dependencies (for build tooling) ---
+node_modules/
+
+# --- Testing ---
+.htmlcov/
+.coverage
+coverage/
+.tox/
+.pytest_cache/
+
+# --- Docker ---
+docker-compose.override.yml
+*.pid
+note.md
