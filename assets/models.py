@@ -1,9 +1,16 @@
+# These models define the core inventory data:
+# Categories organize assets (Laptops, Monitors, etc.)
+# Locations track where assets physically live
+# Assets are the main entity — everything revolves around them
+# AssetAssignment tracks which department has which asset
 from django.db import models
 from django.conf import settings
 from accounts.models import Department
+from vendors.models import Vendor
 
 
 class Category(models.Model):
+    # Simple name-based grouping — "Electronics", "Furniture", etc.
     name = models.CharField(max_length=255, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -15,24 +22,8 @@ class Category(models.Model):
         return self.name
 
 
-class Vendor(models.Model):
-    vendor_name = models.CharField(max_length=100, unique=True)
-    contact_person = models.CharField(max_length=100)
-    email = models.EmailField(unique=True)
-    phone = models.CharField(max_length=20)
-    address = models.TextField()
-    service_type = models.CharField(max_length=100)
-    sla_terms = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["vendor_name"]
-
-    def __str__(self):
-        return self.vendor_name
-
-
 class Location(models.Model):
+    # Physical location: which building, floor, and room
     name = models.CharField(max_length=255, unique=True)
     building = models.CharField(max_length=100)
     floor = models.CharField(max_length=100)
@@ -47,10 +38,12 @@ class Location(models.Model):
 
 
 class Asset(models.Model):
+    # The heart of the system — every tracked piece of equipment
 
     SERVICE_CHOICES = (
         ('NONE', 'None'),
         ('WARRANTY', 'Warranty'),
+        ('INSURANCE', 'Insurance'),
         ('AMC', 'AMC'),
     )
 
@@ -59,6 +52,13 @@ class Asset(models.Model):
         ('REPAIR', 'Under Repair'),
         ('MISSING', 'Missing'),
         ('RETIRED', 'Retired'),
+        ('BLOCKED', 'Blocked'),
+    )
+
+    APPROVAL_CHOICES = (
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
     )
 
     asset_code = models.CharField(max_length=100, unique=True, db_index=True)
@@ -66,10 +66,10 @@ class Asset(models.Model):
     asset_name = models.CharField(max_length=255, db_index=True)
     category = models.ForeignKey(
         Category,
-        on_delete=models.PROTECT,
+        on_delete=models.PROTECT,  # Can't delete a category that still has assets
         related_name="assets",
     )
-    
+
     brand = models.CharField(max_length=100)
     model_name = models.CharField(max_length=100)
 
@@ -86,7 +86,7 @@ class Asset(models.Model):
     )
 
     serial_number = models.CharField(max_length=255, db_index=True)
-    model_number = models.CharField(max_length=255, blank=True)
+    model_detail = models.CharField(max_length=255, blank=True)
 
     manufacturer = models.CharField(max_length=255)
     invoice_number = models.CharField(max_length=255, blank=True)
@@ -94,8 +94,21 @@ class Asset(models.Model):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='ACTIVE',
+        default='BLOCKED',  # New assets start blocked until approved
         db_index=True,
+    )
+
+    approval_status = models.CharField(
+        max_length=20,
+        choices=APPROVAL_CHOICES,
+        default='PENDING',
+    )
+
+    procurement_request = models.ForeignKey(
+        'procurement.ProcurementRequest',
+        on_delete=models.SET_NULL,  # Keep the asset even if the procurement is deleted
+        null=True, blank=True,
+        related_name='assets',
     )
 
     service_type = models.CharField(
@@ -126,13 +139,15 @@ class Asset(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # Newest assets first
 
     def __str__(self):
         return self.asset_code
 
 
 class AssetAssignment(models.Model):
+    # Records when an asset is checked out to a department
+    # Useful for tracking asset movement history
 
     asset_id = models.ForeignKey(
         Asset,
@@ -147,10 +162,10 @@ class AssetAssignment(models.Model):
     )
     assigned_date = models.DateTimeField(auto_now_add=True)
     return_date = models.DateTimeField(null=True, blank=True)
-    remark = models.CharField()
+    remark = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         ordering = ["-assigned_date"]
 
     def __str__(self):
-        return f"{self.asset} -> {self.assigned_user or 'Unassigned'}"
+        return f"{self.asset_id} -> {self.department}"

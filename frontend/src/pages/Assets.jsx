@@ -1,45 +1,95 @@
+// Main asset management page
+// Lists assets in a table with search, filter, and full CRUD
 import { useState, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
 
-const API = "http://localhost:8000/api"
+// Assets API base — note the double "assets" comes from the router prefix
+const API = "http://localhost:8000/api/v1/assets"
+const getRole = () => {
+    try {
+        return JSON.parse(localStorage.getItem("user")).role_name
+    } catch {
+        return null
+    }
+}
 const headers = () => ({
     "Content-Type": "application/json",
     Authorization: `Bearer ${localStorage.getItem("access")}`,
 })
 
+
 const emptyForm = {
     asset_code: "", barcode: "", asset_name: "", brand: "", model_name: "",
-    purchase_cost: "", serial_number: "", model_number: "", manufacturer: "",
+    serial_number: "", model_detail: "", manufacturer: "",
     invoice_number: "", status: "ACTIVE", service_type: "NONE",
     service_start: "", service_end: "",
     category: "", location: "", department: "", vendor: "",
 }
 
 export default function Assets() {
+    const navigate = useNavigate()
     const [assets, setAssets] = useState([])
+    // Lookup lists for rendering names instead of IDs in the table
     const [categories, setCategories] = useState([])
     const [locations, setLocations] = useState([])
     const [departments, setDepartments] = useState([])
     const [vendors, setVendors] = useState([])
+    const [search, setSearch] = useState("")
+    // Filter dropdowns — each maps to a query param the backend understands
+    const [filterStatus, setFilterStatus] = useState("")
+    const [filterCategory, setFilterCategory] = useState("")
+    const [filterLocation, setFilterLocation] = useState("")
+    const [filterDepartment, setFilterDepartment] = useState("")
+    const [filterServiceType, setFilterServiceType] = useState("")
+    const [popup, setPopup] = useState("")
     const [form, setForm] = useState(emptyForm)
     const [editingId, setEditingId] = useState(null)
     const [showForm, setShowForm] = useState(false)
+    const role = getRole()
+    const admin = role === "ADMIN"
+    const im= role==="MANAGER"
+
+    const handleUnauth = () => {
+        localStorage.clear()
+        navigate("/")
+    }
+
+    const handleResponse = (r) => {
+        if (r.status === 401) { handleUnauth(); throw new Error("Unauthorized") }
+        return r.json()
+    }
+
+    // Build the URL with all active search/filter params
+    // The backend's SearchFilter + DjangoFilterBackend handle these automatically
+    const buildUrl = () => {
+        const params = new URLSearchParams()
+        if (search.trim()) params.set("search", search.trim())
+        if (filterStatus) params.set("status", filterStatus)
+        if (filterCategory) params.set("category", filterCategory)
+        if (filterLocation) params.set("location", filterLocation)
+        if (filterDepartment) params.set("department", filterDepartment)
+        if (filterServiceType) params.set("service_type", filterServiceType)
+        const qs = params.toString()
+        return `${API}/assets/${qs ? `?${qs}` : ""}`
+    }
 
     const fetchAssets = () =>
-        fetch(`${API}/assets/`, { headers: headers() })
-            .then((r) => r.json())
-            .then(setAssets)
+        fetch(buildUrl(), { headers: headers() })
+            .then(handleResponse)
+            .then((d) => setAssets(d.results))
 
+    // Fetch the lookup data (categories, locations, etc.) once on mount
     const fetchLookups = () =>
         Promise.all([
-            fetch(`${API}/categories/`, { headers: headers() }).then((r) => r.json()),
-            fetch(`${API}/locations/`, { headers: headers() }).then((r) => r.json()),
-            fetch(`${API}/departments/`, { headers: headers() }).then((r) => r.json()),
-            fetch(`${API}/vendors/`, { headers: headers() }).then((r) => r.json()),
+            fetch(`${API}/categories/`, { headers: headers() }).then(handleResponse),
+            fetch(`${API}/locations/`, { headers: headers() }).then(handleResponse),
+            fetch(`http://localhost:8000/api/v1/auth/departments/`, { headers: headers() }).then(handleResponse),
+            fetch(`${API}/vendors/`, { headers: headers() }).then(handleResponse),
         ]).then(([c, l, d, v]) => {
-            setCategories(c)
-            setLocations(l)
-            setDepartments(d)
-            setVendors(v)
+            setCategories(c.results || c)
+            setLocations(l.results || l)
+            setDepartments(d.results || d)
+            setVendors(v.results || v)
         })
 
     useEffect(() => {
@@ -47,13 +97,33 @@ export default function Assets() {
         fetchLookups()
     }, [])
 
+    // Debounced refetch when search or filters change
+    useEffect(() => {
+        const timer = setTimeout(() => fetchAssets(), 300)
+        return () => clearTimeout(timer)
+    }, [search, filterStatus, filterCategory, filterLocation, filterDepartment, filterServiceType])
+
+    const handleQuickCreate = async () => {
+        if (!search.trim()) return
+        const res = await fetch(`${API}/assets/add/`, {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ asset_name: search.trim() }),
+        })
+        if (res.ok) {
+            setPopup("New asset created")
+            setSearch("")
+            fetchAssets()
+            setTimeout(() => setPopup(""), 2500)
+        }
+    }
+
     const handleChange = (e) =>
         setForm({ ...form, [e.target.name]: e.target.value })
 
     const handleSubmit = async (e) => {
         e.preventDefault()
         const body = { ...form }
-        body.purchase_cost = parseFloat(body.purchase_cost) || 0
         body.service_start = body.service_start || null
         body.service_end = body.service_end || null
         body.category = parseInt(body.category)
@@ -86,9 +156,8 @@ export default function Assets() {
             asset_name: asset.asset_name,
             brand: asset.brand,
             model_name: asset.model_name,
-            purchase_cost: asset.purchase_cost,
             serial_number: asset.serial_number,
-            model_number: asset.model_number || "",
+            model_detail: asset.model_detail || "",
             manufacturer: asset.manufacturer,
             invoice_number: asset.invoice_number || "",
             status: asset.status,
@@ -130,6 +199,8 @@ export default function Assets() {
         return <span style={{ ...st, padding: "2px 10px", borderRadius: "4px", fontSize: "0.75rem" }}>{s}</span>
     }
 
+    // Look up the display name from a list of objects by ID
+    // Handles different key names (name, vendor_name, department_name) across models
     const lookupName = (list, id) => {
         const item = list.find((i) => i.id === id)
         return item ? (item.name || item.vendor_name || item.department_name) : "-"
@@ -149,14 +220,77 @@ export default function Assets() {
 
     return (
         <>
+            {popup && (
+                <div style={{
+                    position: "fixed", top: 20, right: 20, zIndex: 9999,
+                    background: "rgba(34,197,94,0.15)", color: "#22c55e",
+                    border: "1px solid rgba(34,197,94,0.3)",
+                    padding: "12px 24px", borderRadius: 8, fontSize: "0.9rem",
+                }}>{popup}</div>
+            )}
+
             <div className="d-flex justify-content-between align-items-center mb-3">
                 <h1 style={{
                     background: "linear-gradient(135deg, #06b6d4, #8b5cf6)",
                     WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
                     fontWeight: 700, fontSize: "1.75rem", margin: 0,
                 }}>Assets</h1>
-                <button className="btn btn-primary" onClick={openCreate}>+ New Asset</button>
+                {(admin||im) && <button className="btn btn-primary" onClick={openCreate}>+ New Asset</button>}
             </div>
+
+            {admin && (
+                <div className="card p-3 mb-4">
+                    <div className="d-flex gap-2 mb-3">
+                        <input
+                            className="form-control"
+                            placeholder="Search assets..."
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            style={{ maxWidth: 400 }}
+                        />
+                        <button className="btn btn-primary" onClick={handleQuickCreate}>Quick Create</button>
+                    </div>
+                    <div className="d-flex gap-2 flex-wrap">
+                        <select className="form-control" style={{ maxWidth: 180 }} value={filterStatus}
+                            onChange={(e) => setFilterStatus(e.target.value)}>
+                            <option value="">All Statuses</option>
+                            <option value="ACTIVE">Active</option>
+                            <option value="REPAIR">Under Repair</option>
+                            <option value="MISSING">Missing</option>
+                            <option value="RETIRED">Retired</option>
+                        </select>
+                        <select className="form-control" style={{ maxWidth: 180 }} value={filterCategory}
+                            onChange={(e) => setFilterCategory(e.target.value)}>
+                            <option value="">All Categories</option>
+                            {categories.map((c) => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                        </select>
+                        <select className="form-control" style={{ maxWidth: 180 }} value={filterLocation}
+                            onChange={(e) => setFilterLocation(e.target.value)}>
+                            <option value="">All Locations</option>
+                            {locations.map((l) => (
+                                <option key={l.id} value={l.id}>{l.name}</option>
+                            ))}
+                        </select>
+                        <select className="form-control" style={{ maxWidth: 180 }} value={filterDepartment}
+                            onChange={(e) => setFilterDepartment(e.target.value)}>
+                            <option value="">All Departments</option>
+                            {departments.map((d) => (
+                                <option key={d.id} value={d.id}>{d.department_name}</option>
+                            ))}
+                        </select>
+                        <select className="form-control" style={{ maxWidth: 180 }} value={filterServiceType}
+                            onChange={(e) => setFilterServiceType(e.target.value)}>
+                            <option value="">All Service Types</option>
+                            <option value="NONE">None</option>
+                            <option value="WARRANTY">Warranty</option>
+                            <option value="INSURANCE">Insurance</option>
+                            <option value="AMC">AMC</option>
+                        </select>
+                    </div>
+                </div>
+            )}
 
             {showForm && (
                 <div className="card p-3 mb-4">
@@ -197,8 +331,8 @@ export default function Assets() {
                                 <input name="serial_number" className="form-control" value={form.serial_number} onChange={handleChange} required />
                             </div>
                             <div className="mb-2" style={{ flex: "1 1 200px" }}>
-                                <label className="form-label">Model No.</label>
-                                <input name="model_number" className="form-control" value={form.model_number} onChange={handleChange} />
+                                <label className="form-label">Model Detail</label>
+                                <input name="model_detail" className="form-control" value={form.model_detail} onChange={handleChange} />
                             </div>
                             <div className="mb-2" style={{ flex: "1 1 200px" }}>
                                 <label className="form-label">Manufacturer</label>
@@ -207,11 +341,6 @@ export default function Assets() {
                             <div className="mb-2" style={{ flex: "1 1 200px" }}>
                                 <label className="form-label">Invoice No.</label>
                                 <input name="invoice_number" className="form-control" value={form.invoice_number} onChange={handleChange} />
-                            </div>
-                            <div className="mb-2" style={{ flex: "1 1 200px" }}>
-                                <label className="form-label">Purchase Cost</label>
-                                <input name="purchase_cost" type="number" step="0.01" className="form-control"
-                                    value={form.purchase_cost} onChange={handleChange} required />
                             </div>
                             <div className="mb-2" style={{ flex: "1 1 200px" }}>
                                 <label className="form-label">Status</label>
@@ -227,6 +356,7 @@ export default function Assets() {
                                 <select name="service_type" className="form-control" value={form.service_type} onChange={handleChange}>
                                     <option value="NONE">None</option>
                                     <option value="WARRANTY">Warranty</option>
+                                    <option value="INSURANCE">Insurance</option>
                                     <option value="AMC">AMC</option>
                                 </select>
                             </div>
@@ -267,14 +397,13 @@ export default function Assets() {
                                 <th style={thStyle}>Brand</th>
                                 <th style={thStyle}>Location</th>
                                 <th style={thStyle}>Department</th>
-                                <th style={thStyle}>Cost</th>
                                 <th style={thStyle}>Status</th>
                                 <th style={{ ...thStyle, textAlign: "center" }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {assets.length === 0 && (
-                                <tr><td colSpan={9} style={{ color: "#64748b", textAlign: "center", padding: "32px" }}>No assets found</td></tr>
+                                <tr><td colSpan={8} style={{ color: "#64748b", textAlign: "center", padding: "32px" }}>No assets found</td></tr>
                             )}
                             {assets.map((a) => (
                                 <tr key={a.id} style={{ borderBottom: "1px solid rgba(148,163,184,0.05)", transition: "background 0.2s" }}
@@ -286,19 +415,22 @@ export default function Assets() {
                                     <td style={tdStyle}>{a.brand}</td>
                                     <td style={tdStyle}>{lookupName(locations, a.location)}</td>
                                     <td style={tdStyle}>{lookupName(departments, a.department)}</td>
-                                    <td style={tdStyle}>${parseFloat(a.purchase_cost).toFixed(2)}</td>
                                     <td style={tdStyle}>{statusBadge(a.status)}</td>
                                     <td style={{ ...tdStyle, textAlign: "center" }}>
-                                        <button className="btn btn-sm" style={{
-                                            border: "1px solid rgba(6,182,212,0.3)", color: "#06b6d4",
-                                            borderRadius: "6px", padding: "4px 12px", marginRight: "6px",
-                                            fontSize: "0.8rem", background: "transparent",
-                                        }} onClick={() => handleEdit(a)}>Edit</button>
-                                        <button className="btn btn-sm" style={{
-                                            border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
-                                            borderRadius: "6px", padding: "4px 12px",
-                                            fontSize: "0.8rem", background: "transparent",
-                                        }} onClick={() => handleDelete(a.id)}>Delete</button>
+                                        {admin && (
+                                            <>
+                                                <button className="btn btn-sm" style={{
+                                                    border: "1px solid rgba(6,182,212,0.3)", color: "#06b6d4",
+                                                    borderRadius: "6px", padding: "4px 12px", marginRight: "6px",
+                                                    fontSize: "0.8rem", background: "transparent",
+                                                }} onClick={() => handleEdit(a)}>Edit</button>
+                                                <button className="btn btn-sm" style={{
+                                                    border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
+                                                    borderRadius: "6px", padding: "4px 12px",
+                                                    fontSize: "0.8rem", background: "transparent",
+                                                }} onClick={() => handleDelete(a.id)}>Delete</button>
+                                            </>
+                                        )}
                                     </td>
                                 </tr>
                             ))}

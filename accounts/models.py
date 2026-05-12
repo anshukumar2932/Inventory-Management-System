@@ -32,6 +32,9 @@ class Department(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        ordering = ["department_name"]
+
     def __str__(self):
         return self.department_name
 
@@ -62,6 +65,9 @@ class User(AbstractUser):
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["username"]
 
     def __str__(self):
         return self.username

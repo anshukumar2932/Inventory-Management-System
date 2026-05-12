@@ -2,11 +2,18 @@ import { BrowserRouter, Routes, Route } from "react-router-dom"
 import Login from "./pages/Login"
 import Dashboard from "./pages/Dashboard"
 import Assets from "./pages/Assets"
+import BulkUpload from "./pages/BulkUpload"
 import Repairs from "./pages/Repairs"
 import Audits from "./pages/Audits"
 import Vendors from "./pages/Vendors"
 import Reports from "./pages/Reports"
 import Layout from "./components/Layout"
+import Location from "./pages/Location"
+import Category from "./pages/Category"
+import Department from "./pages/Department"
+import Procurements from "./pages/Procurements"
+import NewProcurement from "./pages/NewProcurement"
+import ProcurementDetail from "./pages/ProcurementDetail"
 
 export default function App() {
     return (
@@ -16,10 +23,17 @@ export default function App() {
                 <Route element={<Layout />}>
                     <Route path="/dashboard" element={<Dashboard />} />
                     <Route path="/assets" element={<Assets />} />
+                    <Route path="/bulk_upload" element={<BulkUpload />} />
                     <Route path="/repairs" element={<Repairs />} />
                     <Route path="/audits" element={<Audits />} />
                     <Route path="/vendors" element={<Vendors />} />
                     <Route path="/reports" element={<Reports />} />
+                    <Route path="/location" element={<Location />} />
+                    <Route path="/category" element={<Category />} />
+                    <Route path="/department" element={<Department />}/>
+                    <Route path="/procurements" element={<Procurements />} />
+                    <Route path="/procurements/new" element={<NewProcurement />} />
+                    <Route path="/procurements/:id" element={<ProcurementDetail />} />
                 </Route>
             </Routes>
         </BrowserRouter>
