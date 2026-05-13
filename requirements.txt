@@ -11,13 +11,16 @@ psycopg2-binary>=2.9.9
 Pillow>=10.3.0
 
 celery>=5.4.0
+django-celery-beat>=2.6.0
+flower>=2.0.0
 redis>=5.0.4
 
 python-decouple>=3.8
 
 openpyxl>=3.1.2
-pandas>=2.2.2
 reportlab>=4.1.0
+matplotlib>=3.9.0
+numpy>=1.26.0
 
 gunicorn>=22.0.0
 
@@ -30,5 +33,3 @@ whitenoise>=6.6.0
 
 pytest>=8.2.0
 pytest-django>=4.8.0
-
-python-barcode 

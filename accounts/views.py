@@ -7,31 +7,13 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import Department, Role, User
+from .models import Department, User
 from .serializers import (
     CustomTokenObtainPairSerializer,
     DepartmentSerializer,
     UserSerializer,
 )
 
-class IsAdmin(BasePermission):
-    def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated
-            and request.user.role
-            and request.user.role.role_name == "ADMIN"
-        )
-
-class IsManager(BasePermission):
-     def has_permission(self, request, view):
-        return (
-            request.user.is_authenticated
-            and request.user.role
-            and request.user.role.role_name == "MANAGER")
-
-class IsAuth(BasePermission):
-    def has_permission(self, request, view):
-        return request.user.is_authenticated
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
@@ -56,59 +38,59 @@ class UserDetailView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
-    
+
+
+class IsDeptAdminOrSuperAdmin(BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role in ("DEPARTMENT_ADMIN", "SUPER_ADMIN")
+
+
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
 
     def get_permissions(self):
-
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            permission_classes = [IsAdmin]
-
+        if self.action == 'create':
+            permission_classes = [IsDeptAdminOrSuperAdmin]
+        elif self.action in ['update', 'partial_update', 'destroy']:
+            permission_classes = [IsSuperAdmin]
         else:
             permission_classes = [IsAuthenticated]
-
         return [permission() for permission in permission_classes]
 
     def create(self, request, *args, **kwargs):
-        data = request.data.copy()
-        role_name = data.get("role")
-        if role_name and not str(role_name).isdigit():
-            role = Role.objects.filter(role_name__iexact=role_name).first()
-            if role:
-                data["role"] = role.id
-        serializer = self.get_serializer(data=data)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        password = data.get("password")
         user = serializer.save()
+        if request.user.role == "DEPARTMENT_ADMIN":
+            user.department = request.user.department
+        password = request.data.get("password")
         if password:
             user.set_password(password)
             user.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    def perform_create(self, serializer):
-
-        password = self.request.data.get("password")
-
+    def perform_update(self, serializer):
         user = serializer.save()
+        password = self.request.data.get("password")
+        if password:
+            user.set_password(password)
+            user.save()
 
-        user.set_password(password)
+class IsSuperAdmin(BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role == "SUPER_ADMIN"
 
-        user.save()
-    
+
 class DepartmentViewSet(viewsets.ModelViewSet):
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
 
     def get_permissions(self):
-
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            permission_classes = [IsAdmin,IsManager]
-
+            permission_classes = [IsSuperAdmin]
         else:
             permission_classes = [IsAuthenticated]
-
         return [permission() for permission in permission_classes]
 
     @action(
@@ -118,21 +100,26 @@ class DepartmentViewSet(viewsets.ModelViewSet):
         permission_classes=[IsAuthenticated]
     )
     def detail(self, request, name=None):
-
         if name == 'all':
-            department = Department.objects.all()
-
+            depts = Department.objects.all()
         else:
-            department = Department.objects.filter(
-                department_name__icontains=name
-            )
-
-        serializer = self.get_serializer(
-            department,
-            many=True
-        )
-
+            depts = Department.objects.filter(department_name__icontains=name)
+        serializer = self.get_serializer(depts, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['GET'], permission_classes=[IsAuthenticated])
+    def tree(self, request):
+        def build(node):
+            children = node.children.all()
+            return {
+                'id': node.id,
+                'name': node.department_name,
+                'code': node.code,
+                'children': [build(c) for c in children] if children else [],
+            }
+        roots = Department.objects.filter(parent__isnull=True)
+        return Response([build(r) for r in roots])
+
 
 class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
@@ -140,8 +127,8 @@ class LogoutView(APIView):
     def post(self, request):
         try:
             refresh_token = request.data.get('refresh')
-            token= RefreshToken(refresh_token)
+            token = RefreshToken(refresh_token)
             token.blacklist()
-            return Response({"detail": "Logged Out" })
+            return Response({"detail": "Logged Out"})
         except Exception:
-            return Response({"detail": "Invalid Token" },status=400)
+            return Response({"detail": "Invalid Token"}, status=400)

@@ -17,7 +17,7 @@ const headers = () => ({
 })
 
 const emptyForm = {
-    name: "", building: "", floor: "", room: "",
+    name: "", building: "", floor: "", room: "",sub_location: "",
 }
 
 export default function Location() {
@@ -29,7 +29,8 @@ export default function Location() {
     const [editingId, setEditingId] = useState(null)
     const [showForm, setShowForm] = useState(false)
     const role = getRole()
-    const admin = role === "ADMIN"
+    const super_admin = role ==='SUPER_ADMIN'
+    const dept_admin = role === "DEPARTMENT_ADMIN"
     const im= role==="MANAGER"
 
     const handleUnauth = () => {
@@ -91,7 +92,8 @@ export default function Location() {
             name: loc.name,
             building: loc.building,
             floor: loc.floor,
-            room: loc.room,
+            room: loc.room,    
+            sub_location: loc.sub_location || "",
         })
         setEditingId(loc.id)
         setShowForm(true)
@@ -129,12 +131,10 @@ export default function Location() {
                     WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
                     fontWeight: 700, fontSize: "1.75rem", margin: 0,
                 }}>Locations</h1>
-                {(admin||im) && <button className="btn btn-primary" onClick={openCreate}>+ New Location</button>}
+                {(super_admin || dept_admin || im) && <button className="btn btn-primary" onClick={openCreate}>+ New Location</button>}
             </div>
-            
-            
-          
-            {admin && (
+
+            {(super_admin || dept_admin) && (
                 <div className="card p-3 mb-4">
                     <input
                         className="form-control"
@@ -173,6 +173,15 @@ export default function Location() {
                                 <input name="room" className="form-control" value={form.room}
                                     onChange={handleChange} />
                             </div>
+                            <div className="mb-2" style={{ flex: "1 1 200px" }}>
+                                <label className="form-label">Sub Location</label>
+                                <input
+                                    name="sub_location"
+                                    className="form-control"
+                                    value={form.sub_location}
+                                    onChange={handleChange}
+                                />
+                            </div>
                         </div>
                         <div className="mt-3 d-flex gap-2">
                             <button type="submit" className="btn btn-primary">
@@ -198,6 +207,7 @@ export default function Location() {
                                 <th style={thStyle}>Building</th>
                                 <th style={thStyle}>Floor</th>
                                 <th style={thStyle}>Room</th>
+                                <th style={thStyle}>Sub Location</th>
                                 <th style={{ ...thStyle, textAlign: "center" }}>Actions</th>
                             </tr>
                         </thead>
@@ -213,8 +223,9 @@ export default function Location() {
                                     <td style={tdStyle}>{l.building}</td>
                                     <td style={tdStyle}>{l.floor}</td>
                                     <td style={tdStyle}>{l.room}</td>
+                                    <td style={tdStyle}>{l.sub_location}</td>
                                     <td style={{ ...tdStyle, textAlign: "center" }}>
-                                        {admin && (
+                                        {(super_admin || dept_admin) && (
                                             <>
                                                 <button className="btn btn-sm" style={{
                                                     border: "1px solid rgba(6,182,212,0.3)", color: "#06b6d4",

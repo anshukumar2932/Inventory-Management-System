@@ -4,8 +4,9 @@ import Dashboard from "./pages/Dashboard"
 import Assets from "./pages/Assets"
 import BulkUpload from "./pages/BulkUpload"
 import Repairs from "./pages/Repairs"
-import Audits from "./pages/Audits"
+import AuditScanner from "./pages/AuditScanner"
 import Vendors from "./pages/Vendors"
+import AddVendor from "./pages/AddVendor"
 import Reports from "./pages/Reports"
 import Layout from "./components/Layout"
 import Location from "./pages/Location"
@@ -25,8 +26,9 @@ export default function App() {
                     <Route path="/assets" element={<Assets />} />
                     <Route path="/bulk_upload" element={<BulkUpload />} />
                     <Route path="/repairs" element={<Repairs />} />
-                    <Route path="/audits" element={<Audits />} />
+                    <Route path="/audits" element={<AuditScanner />} />
                     <Route path="/vendors" element={<Vendors />} />
+                    <Route path="/vendors/new" element={<AddVendor />} />
                     <Route path="/reports" element={<Reports />} />
                     <Route path="/location" element={<Location />} />
                     <Route path="/category" element={<Category />} />

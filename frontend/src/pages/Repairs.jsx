@@ -1,7 +1,8 @@
 // Repair tickets management page
 // Full CRUD for tracking asset repairs: create tickets, update status/cost, close out
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
+import BarcodeScanner from "../components/BarcodeScanner"
 
 const API = "http://localhost:8000/api/v1/repairs"
 const ASSETS_API = "http://localhost:8000/api/v1/assets"
@@ -29,11 +30,15 @@ export default function Repairs() {
     const [search, setSearch] = useState("")
     const [filterStatus, setFilterStatus] = useState("")
     const [popup, setPopup] = useState("")
+    const [showScanner, setShowScanner] = useState(false)
     const [form, setForm] = useState(emptyForm)
     const [editingId, setEditingId] = useState(null)
     const [showForm, setShowForm] = useState(false)
+    const [docUploading, setDocUploading] = useState(false)
+    const docInputRef = useRef(null)
     const role = getRole()
-    const admin = role === "ADMIN"
+    const super_admin = role ==='SUPER_ADMIN'
+    const dept_admin = role === "DEPARTMENT_ADMIN"
     const im= role==="MANAGER"
 
 
@@ -129,6 +134,32 @@ export default function Repairs() {
         fetchTickets()
     }
 
+    const handleDocUpload = async (ticketId) => {
+        const file = docInputRef.current?.files?.[0]
+        if (!file) return
+        setDocUploading(true)
+        const fd = new FormData()
+        fd.append("file", file)
+        const res = await fetch(`${ASSETS_API}/documents/`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${localStorage.getItem("access")}` },
+            body: fd,
+        })
+        if (res.ok) {
+            const doc = await res.json()
+            await fetch(`${API}/repairs/${ticketId}/`, {
+                method: "PATCH",
+                headers: headers(),
+                body: JSON.stringify({ bill_documents: [doc.id] }),
+            })
+            setPopup("Bill uploaded")
+            setTimeout(() => setPopup(""), 2500)
+            fetchTickets()
+        }
+        setDocUploading(false)
+        if (docInputRef.current) docInputRef.current.value = ""
+    }
+
     const openCreate = () => {
         setForm(emptyForm)
         setEditingId(null)
@@ -170,10 +201,10 @@ export default function Repairs() {
                     WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
                     fontWeight: 700, fontSize: "1.75rem", margin: 0,
                 }}>Repairs</h1>
-                {(admin||im) && <button className="btn btn-primary" onClick={openCreate}>+ New Ticket</button>}
+                {(super_admin || dept_admin || im) && <button className="btn btn-primary" onClick={openCreate}>+ New Ticket</button>}
             </div>
 
-            {admin && (
+            {(super_admin || dept_admin || im) && (
                 <div className="card p-3 mb-4">
                     <div className="d-flex gap-2 mb-3">
                         <input
@@ -183,6 +214,9 @@ export default function Repairs() {
                             onChange={(e) => setSearch(e.target.value)}
                             style={{ maxWidth: 400 }}
                         />
+                        <button className="btn btn-outline-info" onClick={() => setShowScanner(true)}>
+                            Scan
+                        </button>
                         <select className="form-control" style={{ maxWidth: 180 }} value={filterStatus}
                             onChange={(e) => setFilterStatus(e.target.value)}>
                             <option value="">All Statuses</option>
@@ -246,6 +280,16 @@ export default function Repairs() {
                             <button type="submit" className="btn btn-primary">
                                 {editingId ? "Update" : "Create"}
                             </button>
+                            {editingId && (
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                    <input ref={docInputRef} type="file" style={{ display: "none" }}
+                                        onChange={() => handleDocUpload(editingId)} />
+                                    <button type="button" className="btn btn-outline-info" disabled={docUploading}
+                                        onClick={() => docInputRef.current?.click()}>
+                                        {docUploading ? "Uploading..." : "+ Upload Bill"}
+                                    </button>
+                                </div>
+                            )}
                             <button type="button" className="btn" style={{
                                 border: "1px solid rgba(148,163,184,0.3)", color: "#94a3b8",
                                 borderRadius: "8px", padding: "8px 20px",
@@ -269,12 +313,13 @@ export default function Repairs() {
                                 <th style={thStyle}>Cost</th>
                                 <th style={thStyle}>Started</th>
                                 <th style={thStyle}>Completed</th>
+                                <th style={thStyle}>Bill</th>
                                 <th style={{ ...thStyle, textAlign: "center" }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {tickets.length === 0 && (
-                                <tr><td colSpan={8} style={{ color: "#64748b", textAlign: "center", padding: "32px" }}>No repair tickets found</td></tr>
+                                <tr><td colSpan={9} style={{ color: "#64748b", textAlign: "center", padding: "32px" }}>No repair tickets found</td></tr>
                             )}
                             {tickets.map((t) => (
                                 <tr key={t.id} style={{ borderBottom: "1px solid rgba(148,163,184,0.05)", transition: "background 0.2s" }}
@@ -289,8 +334,21 @@ export default function Repairs() {
                                     <td style={tdStyle}>${parseFloat(t.repair_cost).toFixed(2)}</td>
                                     <td style={tdStyle}>{new Date(t.start_date).toLocaleDateString()}</td>
                                     <td style={tdStyle}>{t.completion_date ? new Date(t.completion_date).toLocaleDateString() : "-"}</td>
+                                    <td style={tdStyle}>
+                                        {t.bill_documents?.length > 0 ? (
+                                            <span style={{ color: "#22c55e", fontSize: "0.8rem", cursor: "pointer" }}
+                                                onClick={async () => {
+                                                    const r = await fetch(`${ASSETS_API}/documents/${t.bill_documents[0]}/download/`, {
+                                                        headers: { Authorization: `Bearer ${localStorage.getItem("access")}` },
+                                                    });
+                                                    if (r.ok) { const b = await r.blob(); const u = URL.createObjectURL(b); const x = document.createElement("a"); x.href = u; x.download = "bill"; x.click(); URL.revokeObjectURL(u); }
+                                                }}>
+                                                📎 Bill
+                                            </span>
+                                        ) : "—"}
+                                    </td>
                                     <td style={{ ...tdStyle, textAlign: "center" }}>
-                                        {admin && (
+                                        {(super_admin || dept_admin || im) && (
                                             <>
                                                 <button className="btn btn-sm" style={{
                                                     border: "1px solid rgba(6,182,212,0.3)", color: "#06b6d4",
@@ -311,6 +369,16 @@ export default function Repairs() {
                     </table>
                 </div>
             </div>
+
+            {showScanner && (
+                <BarcodeScanner
+                    onScan={(asset) => {
+                        setShowScanner(false)
+                        setSearch(asset.asset_code)
+                    }}
+                    onClose={() => setShowScanner(false)}
+                />
+            )}
         </>
     )
 }

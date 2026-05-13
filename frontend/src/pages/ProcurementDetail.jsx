@@ -17,7 +17,8 @@ export default function ProcurementDetail() {
     const { id } = useParams()
     const navigate = useNavigate()
     const role = getRole()
-    const admin = role === "ADMIN"
+    const super_admin = role ==='SUPER_ADMIN'
+    const dept_admin = role === "DEPARTMENT_ADMIN"
     const [procurement, setProcurement] = useState(null)
     const [assets, setAssets] = useState([])
     const [remarks, setRemarks] = useState("")
@@ -140,7 +141,7 @@ export default function ProcurementDetail() {
                     </div>
                 </div>
 
-                {admin && procurement.approval_status === "PENDING" && (
+                {(super_admin) && procurement.approval_status === "PENDING" && (
                     <div className="col-md-4">
                         <div className="card p-3">
                             <h5 style={{ color: "#e2e8f0", marginBottom: "16px", fontSize: "0.95rem" }}>Actions</h5>

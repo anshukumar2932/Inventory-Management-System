@@ -25,9 +25,9 @@ const statusBadge = (s) => {
 export default function Procurements() {
     const navigate = useNavigate()
     const role = getRole()
-    const admin = role === "ADMIN"
+    const super_admin = role === "SUPER_ADMIN"
     const [requests, setRequests] = useState([])
-    const [tab, setTab] = useState(admin ? "PENDING" : "MY")
+    const [tab, setTab] = useState(super_admin ? "PENDING" : "MY")
     const [loading, setLoading] = useState(true)
 
     const fetchData = () => {
@@ -52,25 +52,25 @@ export default function Procurements() {
                     WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
                     fontWeight: 700, fontSize: "1.75rem", margin: 0,
                 }}>Procurements</h1>
-                {!admin && (
+                {!super_admin && (
                     <Link to="/procurements/new" className="btn btn-primary">+ New Request</Link>
                 )}
             </div>
 
             <div className="mb-3 d-flex gap-2">
-                {!admin && (
+                {!super_admin && (
                     <button className={`btn btn-sm ${tab === "MY" ? "btn-primary" : "btn-outline-secondary"}`}
                         onClick={() => setTab("MY")}>My Requests</button>
                 )}
-                {admin && (
+                {super_admin && (
                     <button className={`btn btn-sm ${tab === "PENDING" ? "btn-primary" : "btn-outline-secondary"}`}
                         onClick={() => setTab("PENDING")}>Pending</button>
                 )}
-                {admin && (
+                {super_admin && (
                     <button className={`btn btn-sm ${tab === "HISTORY" ? "btn-primary" : "btn-outline-secondary"}`}
                         onClick={() => setTab("HISTORY")}>History</button>
                 )}
-                {!admin && (
+                {!super_admin && (
                     <button className={`btn btn-sm ${tab === "ALL" ? "btn-primary" : "btn-outline-secondary"}`}
                         onClick={() => setTab("ALL")}>All</button>
                 )}

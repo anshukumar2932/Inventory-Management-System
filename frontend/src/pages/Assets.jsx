@@ -1,7 +1,8 @@
 // Main asset management page
 // Lists assets in a table with search, filter, and full CRUD
-import { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
+import BarcodeScanner from "../components/BarcodeScanner"
 
 // Assets API base — note the double "assets" comes from the router prefix
 const API = "http://localhost:8000/api/v1/assets"
@@ -21,9 +22,9 @@ const headers = () => ({
 const emptyForm = {
     asset_code: "", barcode: "", asset_name: "", brand: "", model_name: "",
     serial_number: "", model_detail: "", manufacturer: "",
-    invoice_number: "", status: "ACTIVE", service_type: "NONE",
-    service_start: "", service_end: "",
+    invoice_number: "", status: "ACTIVE",
     category: "", location: "", department: "", vendor: "",
+    remarks: "",
 }
 
 export default function Assets() {
@@ -40,13 +41,18 @@ export default function Assets() {
     const [filterCategory, setFilterCategory] = useState("")
     const [filterLocation, setFilterLocation] = useState("")
     const [filterDepartment, setFilterDepartment] = useState("")
-    const [filterServiceType, setFilterServiceType] = useState("")
+    const [groupBy, setGroupBy] = useState("")
     const [popup, setPopup] = useState("")
+    const [showScanner, setShowScanner] = useState(false)
     const [form, setForm] = useState(emptyForm)
     const [editingId, setEditingId] = useState(null)
     const [showForm, setShowForm] = useState(false)
+    const [docUploading, setDocUploading] = useState(false)
+    const [pendingDoc, setPendingDoc] = useState(null)
+    const docInputRef = useRef(null)
     const role = getRole()
-    const admin = role === "ADMIN"
+    const super_admin = role ==='SUPER_ADMIN'
+    const dept_admin = role === "DEPARTMENT_ADMIN"
     const im= role==="MANAGER"
 
     const handleUnauth = () => {
@@ -68,7 +74,6 @@ export default function Assets() {
         if (filterCategory) params.set("category", filterCategory)
         if (filterLocation) params.set("location", filterLocation)
         if (filterDepartment) params.set("department", filterDepartment)
-        if (filterServiceType) params.set("service_type", filterServiceType)
         const qs = params.toString()
         return `${API}/assets/${qs ? `?${qs}` : ""}`
     }
@@ -101,7 +106,7 @@ export default function Assets() {
     useEffect(() => {
         const timer = setTimeout(() => fetchAssets(), 300)
         return () => clearTimeout(timer)
-    }, [search, filterStatus, filterCategory, filterLocation, filterDepartment, filterServiceType])
+    }, [search, filterStatus, filterCategory, filterLocation, filterDepartment])
 
     const handleQuickCreate = async () => {
         if (!search.trim()) return
@@ -124,8 +129,7 @@ export default function Assets() {
     const handleSubmit = async (e) => {
         e.preventDefault()
         const body = { ...form }
-        body.service_start = body.service_start || null
-        body.service_end = body.service_end || null
+        body.remarks = body.remarks || ""
         body.category = parseInt(body.category)
         body.location = parseInt(body.location)
         body.department = parseInt(body.department)
@@ -142,6 +146,11 @@ export default function Assets() {
             body: JSON.stringify(body),
         })
         if (res.ok) {
+            const asset = await res.json()
+            if (!editingId && pendingDoc) {
+                await uploadDoc(asset.id)
+                setPendingDoc(null)
+            }
             setShowForm(false)
             setEditingId(null)
             setForm(emptyForm)
@@ -161,9 +170,7 @@ export default function Assets() {
             manufacturer: asset.manufacturer,
             invoice_number: asset.invoice_number || "",
             status: asset.status,
-            service_type: asset.service_type,
-            service_start: asset.service_start || "",
-            service_end: asset.service_end || "",
+            remarks: asset.remarks || "",
             category: asset.category,
             location: asset.location,
             department: asset.department,
@@ -180,6 +187,41 @@ export default function Assets() {
             headers: headers(),
         })
         fetchAssets()
+    }
+
+    const uploadDoc = async (assetId) => {
+        const file = docInputRef.current?.files?.[0] || pendingDoc
+        if (!file) return
+        setDocUploading(true)
+        const fd = new FormData()
+        fd.append("file", file)
+        const res = await fetch(`${API}/documents/`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${localStorage.getItem("access")}` },
+            body: fd,
+        })
+        if (res.ok) {
+            const doc = await res.json()
+            await fetch(`${API}/assets/${assetId}/`, {
+                method: "PATCH",
+                headers: headers(),
+                body: JSON.stringify({ documents: [doc.id] }),
+            })
+            setPopup("Document uploaded")
+            setTimeout(() => setPopup(""), 2500)
+            fetchAssets()
+        }
+        setDocUploading(false)
+        if (docInputRef.current) docInputRef.current.value = ""
+    }
+
+    const handleDocSelect = () => {
+        const file = docInputRef.current?.files?.[0]
+        if (editingId) {
+            uploadDoc(editingId)
+        } else {
+            setPendingDoc(file)
+        }
     }
 
     const openCreate = () => {
@@ -205,6 +247,29 @@ export default function Assets() {
         const item = list.find((i) => i.id === id)
         return item ? (item.name || item.vendor_name || item.department_name) : "-"
     }
+
+    const groupLabel = (item) => {
+        if (!groupBy) return null
+        const id = item[groupBy]
+        let list = []
+        if (groupBy === "category") list = categories
+        else if (groupBy === "department") list = departments
+        else if (groupBy === "location") list = locations
+        else if (groupBy === "status") return item.status || "Unknown"
+        const found = list.find((i) => i.id === id)
+        return found ? (found.name || found.department_name) : "Unknown"
+    }
+
+    const groupedAssets = groupBy
+        ? Object.entries(
+            assets.reduce((acc, a) => {
+                const key = groupLabel(a) || "Unknown"
+                if (!acc[key]) acc[key] = []
+                acc[key].push(a)
+                return acc
+            }, {})
+          ).sort((a, b) => a[0].localeCompare(b[0]))
+        : null
 
     const SelectField = ({ label, name, options, valueKey, labelKey }) => (
         <div className="mb-2" style={{ flex: "1 1 200px" }}>
@@ -235,10 +300,10 @@ export default function Assets() {
                     WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
                     fontWeight: 700, fontSize: "1.75rem", margin: 0,
                 }}>Assets</h1>
-                {(admin||im) && <button className="btn btn-primary" onClick={openCreate}>+ New Asset</button>}
+                {(super_admin || dept_admin || im) && <button className="btn btn-primary" onClick={openCreate}>+ New Asset</button>}
             </div>
 
-            {admin && (
+            {(super_admin || dept_admin || im) && (
                 <div className="card p-3 mb-4">
                     <div className="d-flex gap-2 mb-3">
                         <input
@@ -249,6 +314,9 @@ export default function Assets() {
                             style={{ maxWidth: 400 }}
                         />
                         <button className="btn btn-primary" onClick={handleQuickCreate}>Quick Create</button>
+                        <button className="btn btn-outline-info" onClick={() => setShowScanner(true)}>
+                            Scan
+                        </button>
                     </div>
                     <div className="d-flex gap-2 flex-wrap">
                         <select className="form-control" style={{ maxWidth: 180 }} value={filterStatus}
@@ -280,13 +348,13 @@ export default function Assets() {
                                 <option key={d.id} value={d.id}>{d.department_name}</option>
                             ))}
                         </select>
-                        <select className="form-control" style={{ maxWidth: 180 }} value={filterServiceType}
-                            onChange={(e) => setFilterServiceType(e.target.value)}>
-                            <option value="">All Service Types</option>
-                            <option value="NONE">None</option>
-                            <option value="WARRANTY">Warranty</option>
-                            <option value="INSURANCE">Insurance</option>
-                            <option value="AMC">AMC</option>
+                        <select className="form-control" style={{ maxWidth: 160 }} value={groupBy}
+                            onChange={(e) => setGroupBy(e.target.value)}>
+                            <option value="">No Grouping</option>
+                            <option value="category">Group by Category</option>
+                            <option value="department">Group by Department</option>
+                            <option value="location">Group by Location</option>
+                            <option value="status">Group by Status</option>
                         </select>
                     </div>
                 </div>
@@ -351,30 +419,24 @@ export default function Assets() {
                                     <option value="RETIRED">Retired</option>
                                 </select>
                             </div>
-                            <div className="mb-2" style={{ flex: "1 1 200px" }}>
-                                <label className="form-label">Service Type</label>
-                                <select name="service_type" className="form-control" value={form.service_type} onChange={handleChange}>
-                                    <option value="NONE">None</option>
-                                    <option value="WARRANTY">Warranty</option>
-                                    <option value="INSURANCE">Insurance</option>
-                                    <option value="AMC">AMC</option>
-                                </select>
-                            </div>
-                            <div className="mb-2" style={{ flex: "1 1 200px" }}>
-                                <label className="form-label">Service Start</label>
-                                <input name="service_start" type="date" className="form-control"
-                                    value={form.service_start} onChange={handleChange} />
-                            </div>
-                            <div className="mb-2" style={{ flex: "1 1 200px" }}>
-                                <label className="form-label">Service End</label>
-                                <input name="service_end" type="date" className="form-control"
-                                    value={form.service_end} onChange={handleChange} />
+                            <div className="mb-2" style={{ flex: "1 1 100%" }}>
+                                <label className="form-label">Remarks</label>
+                                <textarea name="remarks" className="form-control" rows="2"
+                                    value={form.remarks} onChange={handleChange} />
                             </div>
                         </div>
                         <div className="mt-3 d-flex gap-2">
                             <button type="submit" className="btn btn-primary">
                                 {editingId ? "Update" : "Create"}
                             </button>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                <input ref={docInputRef} type="file" style={{ display: "none" }}
+                                    onChange={handleDocSelect} />
+                                <button type="button" className="btn btn-outline-info" disabled={docUploading}
+                                    onClick={() => docInputRef.current?.click()}>
+                                    {docUploading ? "Uploading..." : pendingDoc ? "Doc Selected" : "+ Upload Doc"}
+                                </button>
+                            </div>
                             <button type="button" className="btn" style={{
                                 border: "1px solid rgba(148,163,184,0.3)", color: "#94a3b8",
                                 borderRadius: "8px", padding: "8px 20px",
@@ -398,14 +460,72 @@ export default function Assets() {
                                 <th style={thStyle}>Location</th>
                                 <th style={thStyle}>Department</th>
                                 <th style={thStyle}>Status</th>
+                                <th style={thStyle}>Remarks</th>
+                                <th style={thStyle}>Docs</th>
                                 <th style={{ ...thStyle, textAlign: "center" }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {assets.length === 0 && (
-                                <tr><td colSpan={8} style={{ color: "#64748b", textAlign: "center", padding: "32px" }}>No assets found</td></tr>
+                                <tr><td colSpan={10} style={{ color: "#64748b", textAlign: "center", padding: "32px" }}>No assets found</td></tr>
                             )}
-                            {assets.map((a) => (
+                            {groupedAssets ? groupedAssets.map(([group, items]) => (
+                                <React.Fragment key={group}>
+                                    <tr style={{ background: "rgba(6,182,212,0.06)" }}>
+                                        <td colSpan={10} style={{
+                                            padding: "8px 16px", fontWeight: 700,
+                                            color: "#06b6d4", fontSize: "0.85rem",
+                                            textTransform: "uppercase", letterSpacing: "0.5px",
+                                            borderBottom: "1px solid rgba(6,182,212,0.2)",
+                                        }}>
+                                            {group} <span style={{ color: "#64748b", fontWeight: 400, fontSize: "0.75rem" }}>({items.length})</span>
+                                        </td>
+                                    </tr>
+                                    {items.map((a) => (
+                                        <tr key={a.id} style={{ borderBottom: "1px solid rgba(148,163,184,0.05)", transition: "background 0.2s" }}
+                                            onMouseEnter={(e) => e.currentTarget.style.background = "rgba(6,182,212,0.03)"}
+                                            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+                                            <td style={tdStyle}>{a.asset_code}</td>
+                                            <td style={tdStyle}>{a.asset_name}</td>
+                                            <td style={tdStyle}>{lookupName(categories, a.category)}</td>
+                                            <td style={tdStyle}>{a.brand}</td>
+                                            <td style={tdStyle}>{lookupName(locations, a.location)}</td>
+                                            <td style={tdStyle}>{lookupName(departments, a.department)}</td>
+                                            <td style={tdStyle}>{statusBadge(a.status)}</td>
+                                            <td style={tdStyle}>{a.remarks || "—"}</td>
+                                            <td style={tdStyle}>
+                                                {a.documents?.length > 0 ? (
+                                                    <span style={{ color: "#06b6d4", fontSize: "0.8rem", cursor: "pointer" }}
+                                                        onClick={async () => {
+                                                            const r = await fetch(`${API}/documents/${a.documents[0]}/download/`, {
+                                                                headers: { Authorization: `Bearer ${localStorage.getItem("access")}` },
+                                                            });
+                                                            if (r.ok) { const b = await r.blob(); const u = URL.createObjectURL(b); const x = document.createElement("a"); x.href = u; x.download = "doc"; x.click(); URL.revokeObjectURL(u); }
+                                                        }}>
+                                                        📄 {a.documents.length}
+                                                    </span>
+                                                ) : "—"}
+                                            </td>
+                                            <td style={{ ...tdStyle, textAlign: "center" }}>
+                                                {(super_admin || dept_admin || im) && (
+                                                    <>
+                                                        <button className="btn btn-sm" style={{
+                                                            border: "1px solid rgba(6,182,212,0.3)", color: "#06b6d4",
+                                                            borderRadius: "6px", padding: "4px 12px", marginRight: "6px",
+                                                            fontSize: "0.8rem", background: "transparent",
+                                                        }} onClick={() => handleEdit(a)}>Edit</button>
+                                                        <button className="btn btn-sm" style={{
+                                                            border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
+                                                            borderRadius: "6px", padding: "4px 12px",
+                                                            fontSize: "0.8rem", background: "transparent",
+                                                        }} onClick={() => handleDelete(a.id)}>Delete</button>
+                                                    </>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </React.Fragment>
+                            )) : assets.map((a) => (
                                 <tr key={a.id} style={{ borderBottom: "1px solid rgba(148,163,184,0.05)", transition: "background 0.2s" }}
                                     onMouseEnter={(e) => e.currentTarget.style.background = "rgba(6,182,212,0.03)"}
                                     onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
@@ -416,8 +536,22 @@ export default function Assets() {
                                     <td style={tdStyle}>{lookupName(locations, a.location)}</td>
                                     <td style={tdStyle}>{lookupName(departments, a.department)}</td>
                                     <td style={tdStyle}>{statusBadge(a.status)}</td>
+                                    <td style={tdStyle}>{a.remarks || "—"}</td>
+                                    <td style={tdStyle}>
+                                        {a.documents?.length > 0 ? (
+                                            <span style={{ color: "#06b6d4", fontSize: "0.8rem", cursor: "pointer" }}
+                                                onClick={async () => {
+                                                    const r = await fetch(`${API}/documents/${a.documents[0]}/download/`, {
+                                                        headers: { Authorization: `Bearer ${localStorage.getItem("access")}` },
+                                                    });
+                                                    if (r.ok) { const b = await r.blob(); const u = URL.createObjectURL(b); const x = document.createElement("a"); x.href = u; x.download = "doc"; x.click(); URL.revokeObjectURL(u); }
+                                                }}>
+                                                📄 {a.documents.length}
+                                            </span>
+                                        ) : "—"}
+                                    </td>
                                     <td style={{ ...tdStyle, textAlign: "center" }}>
-                                        {admin && (
+                                        {(super_admin || dept_admin || im) && (
                                             <>
                                                 <button className="btn btn-sm" style={{
                                                     border: "1px solid rgba(6,182,212,0.3)", color: "#06b6d4",
@@ -438,6 +572,16 @@ export default function Assets() {
                     </table>
                 </div>
             </div>
+
+            {showScanner && (
+                <BarcodeScanner
+                    onScan={(asset) => {
+                        setShowScanner(false)
+                        setSearch(asset.asset_code)
+                    }}
+                    onClose={() => setShowScanner(false)}
+                />
+            )}
         </>
     )
 }

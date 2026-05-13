@@ -176,7 +176,7 @@ export default function Dashboard() {
                         </div>
                         <div>
                             <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase" }}>Total Cost</div>
-                            <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#06b6d4" }}>${stats.repair_analytics.total_cost.toLocaleString()}</div>
+                            <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#06b6d4" }}>Rs. {stats.repair_analytics.total_cost.toLocaleString()}</div>
                         </div>
                     </div>
                 </div>

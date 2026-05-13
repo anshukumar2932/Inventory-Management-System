@@ -1,16 +1,23 @@
-# These models define the core inventory data:
-# Categories organize assets (Laptops, Monitors, etc.)
-# Locations track where assets physically live
-# Assets are the main entity — everything revolves around them
-# AssetAssignment tracks which department has which asset
 from django.db import models
 from django.conf import settings
 from accounts.models import Department
-from vendors.models import Vendor
+
+
+class Document(models.Model):
+    file_name = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=100)
+    file_size = models.IntegerField()
+    file_data = models.BinaryField()
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return self.file_name
 
 
 class Category(models.Model):
-    # Simple name-based grouping — "Electronics", "Furniture", etc.
     name = models.CharField(max_length=255, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -23,11 +30,11 @@ class Category(models.Model):
 
 
 class Location(models.Model):
-    # Physical location: which building, floor, and room
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
     building = models.CharField(max_length=100)
     floor = models.CharField(max_length=100)
     room = models.CharField(max_length=100)
+    sub_location = models.CharField(max_length=100, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -38,15 +45,6 @@ class Location(models.Model):
 
 
 class Asset(models.Model):
-    # The heart of the system — every tracked piece of equipment
-
-    SERVICE_CHOICES = (
-        ('NONE', 'None'),
-        ('WARRANTY', 'Warranty'),
-        ('INSURANCE', 'Insurance'),
-        ('AMC', 'AMC'),
-    )
-
     STATUS_CHOICES = (
         ('ACTIVE', 'Active'),
         ('REPAIR', 'Under Repair'),
@@ -64,102 +62,37 @@ class Asset(models.Model):
     asset_code = models.CharField(max_length=100, unique=True, db_index=True)
     barcode = models.CharField(max_length=255, unique=True, blank=True)
     asset_name = models.CharField(max_length=255, db_index=True)
-    category = models.ForeignKey(
-        Category,
-        on_delete=models.PROTECT,  # Can't delete a category that still has assets
-        related_name="assets",
-    )
-
+    category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="assets")
     brand = models.CharField(max_length=100)
     model_name = models.CharField(max_length=100)
-
-    location = models.ForeignKey(
-        Location,
-        on_delete=models.PROTECT,
-        related_name="assets",
-    )
-
-    department = models.ForeignKey(
-        Department,
-        on_delete=models.PROTECT,
-        related_name="assets",
-    )
-
+    location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name="assets")
+    department = models.ForeignKey(Department, on_delete=models.PROTECT, related_name="assets")
     serial_number = models.CharField(max_length=255, db_index=True)
     model_detail = models.CharField(max_length=255, blank=True)
-
     manufacturer = models.CharField(max_length=255)
     invoice_number = models.CharField(max_length=255, blank=True)
-
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='BLOCKED',  # New assets start blocked until approved
-        db_index=True,
-    )
-
-    approval_status = models.CharField(
-        max_length=20,
-        choices=APPROVAL_CHOICES,
-        default='PENDING',
-    )
-
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='BLOCKED', db_index=True)
+    approval_status = models.CharField(max_length=20, choices=APPROVAL_CHOICES, default='PENDING')
     procurement_request = models.ForeignKey(
         'procurement.ProcurementRequest',
-        on_delete=models.SET_NULL,  # Keep the asset even if the procurement is deleted
-        null=True, blank=True,
-        related_name='assets',
+        on_delete=models.SET_NULL, null=True, blank=True, related_name='assets',
     )
-
-    service_type = models.CharField(
-        max_length=20,
-        choices=SERVICE_CHOICES,
-        default='NONE',
-    )
-
-    service_start = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    service_end = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    vendor = models.ForeignKey(
-        Vendor,
-        on_delete=models.PROTECT,
-        related_name="assets",
-        null=True,
-        blank=True,
-    )
-
+    vendor = models.ForeignKey('vendors.Vendor', on_delete=models.PROTECT, related_name="assets", null=True, blank=True)
+    documents = models.ManyToManyField(Document, blank=True)
+    remarks = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-created_at"]  # Newest assets first
+        ordering = ["-created_at"]
 
     def __str__(self):
         return self.asset_code
 
 
 class AssetAssignment(models.Model):
-    # Records when an asset is checked out to a department
-    # Useful for tracking asset movement history
-
-    asset_id = models.ForeignKey(
-        Asset,
-        on_delete=models.CASCADE,
-        related_name="assignments",
-    )
-
-    department = models.ForeignKey(
-        Department,
-        on_delete=models.PROTECT,
-        related_name="assignments",
-    )
+    asset_id = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name="assignments")
+    department = models.ForeignKey(Department, on_delete=models.PROTECT, related_name="assignments")
     assigned_date = models.DateTimeField(auto_now_add=True)
     return_date = models.DateTimeField(null=True, blank=True)
     remark = models.CharField(max_length=255, blank=True, default='')
@@ -169,3 +102,46 @@ class AssetAssignment(models.Model):
 
     def __str__(self):
         return f"{self.asset_id} -> {self.department}"
+
+
+class ServiceType(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    department = models.ForeignKey(
+        Department, on_delete=models.CASCADE, null=True, blank=True,
+        help_text="Leave blank for global services usable by all departments",
+    )
+    description = models.TextField(blank=True, null=True)
+    is_global = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class AssetService(models.Model):
+    STATUS_CHOICES = (
+        ('ACTIVE', 'Active'),
+        ('EXPIRED', 'Expired'),
+        ('PENDING', 'Pending'),
+    )
+
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='asset_services')
+    service_type = models.ForeignKey(ServiceType, on_delete=models.PROTECT)
+    provider = models.ForeignKey('vendors.Vendor', on_delete=models.SET_NULL, null=True, blank=True)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    renewal_reminder_days = models.IntegerField(default=30)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE')
+    document = models.ForeignKey(Document, on_delete=models.SET_NULL, null=True, blank=True)
+    remarks = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-end_date']
+
+    def __str__(self):
+        return f"{self.asset.asset_code} - {self.service_type.name}"

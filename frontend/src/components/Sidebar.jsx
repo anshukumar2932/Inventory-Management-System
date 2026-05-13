@@ -12,22 +12,23 @@ const getUser = () => {
     catch { return null }
 }
 
-const navItems = [
-    { label: "Dashboard", path: "/dashboard" },
-    { label: "Assets", path: "/assets" },
-    { label: "Procurements", path: "/procurements" },
-    { label: "Bulk Upload", path: "/bulk_upload" },
-    { label: "Department", path: "/department" },
-    { label: "Location", path: "/location" },
-    { label: "Vendors", path: "/vendors" },
-    { label: "Repairs", path: "/repairs" },
-    { label: "Reports", path: "/reports" },
-    { label: "Audits", path: "/audits" },
+const allNavItems = [
+    { label: "Dashboard", path: "/dashboard", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER", "USER"] },
+    { label: "Assets", path: "/assets", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER", "USER"] },
+    { label: "Procurements", path: "/procurements", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER", "USER"] },
+    { label: "Bulk Upload", path: "/bulk_upload", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER"] },
+    { label: "Department", path: "/department", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER"] },
+    { label: "Location", path: "/location", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER"] },
+    { label: "Vendors", path: "/vendors", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER", "USER"] },
+    { label: "Repairs", path: "/repairs", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER", "USER"] },
+    { label: "Reports", path: "/reports", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER", "USER"] },
+    { label: "Audits", path: "/audits", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER"] },
 ]
 
 export default function Sidebar() {
     const navigate = useNavigate()
     const user = getUser()
+    const navItems = allNavItems.filter((item) => item.roles.includes(user?.role_name))
     const [notifCount, setNotifCount] = useState(0)
     const [notifs, setNotifs] = useState([])
     const [showNotifs, setShowNotifs] = useState(false)

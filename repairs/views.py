@@ -10,12 +10,10 @@ from .serializers import RepairTicketSerializer
 
 
 class RepairViewSet(viewsets.ModelViewSet):
-    # select_related prevents N+1 queries when accessing asset details
-    queryset = RepairTicket.objects.select_related("asset").all()
+    queryset = RepairTicket.objects.none()
     serializer_class = RepairTicketSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    # Search across the asset's code, name, and the issue description
     search_fields = [
         "asset__asset_code",
         "asset__asset_name",
@@ -24,3 +22,12 @@ class RepairViewSet(viewsets.ModelViewSet):
     filterset_fields = ["status"]
     ordering_fields = ["start_date", "completion_date", "repair_cost"]
     ordering = ["-start_date"]
+
+    def get_queryset(self):
+        qs = RepairTicket.objects.select_related("asset")
+        user = self.request.user
+        if getattr(user, 'role', None) == "SUPER_ADMIN":
+            return qs.all()
+        if user.department:
+            return qs.filter(asset__department=user.department)
+        return qs.none()

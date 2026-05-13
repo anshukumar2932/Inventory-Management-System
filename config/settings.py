@@ -188,3 +188,18 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'accounts.User'
 
 CELERY_BROKER_URL = 'redis://localhost:6379/0'
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+BASE_URL = config('BASE_URL', default='http://localhost:8000')
+
+CHART_EXPIRY_HOURS = config('CHART_EXPIRY_HOURS', default=24, cast=int)
+REPORT_RETENTION_MONTHS = config('REPORT_RETENTION_MONTHS', default=3, cast=int)
+
+EMAIL_HOST = config('EMAIL_HOST', default='')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+REPORT_EMAIL_RECIPIENTS = config('REPORT_EMAIL_RECIPIENTS', default='', cast=lambda v: [x.strip() for x in v.split(',')])

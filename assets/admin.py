@@ -1,5 +1,6 @@
 from django.contrib import admin
-from .models import Asset, AssetAssignment, Category, Vendor, Location
+from .models import Asset, AssetAssignment, Category, Location
+from vendors.models import Vendor
 
 
 admin.site.register(Asset)
