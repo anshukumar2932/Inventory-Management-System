@@ -49,12 +49,6 @@ reports/generated/
 reports/output/
 notifications/output/
 
-# --- OS ---
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-
 # --- Frontend (Vite / React) ---
 frontend/node_modules/
 frontend/dist/
@@ -63,7 +57,7 @@ frontend/.vite/
 frontend/*.tsbuildinfo
 frontend/*.js.map
 
-# --- Backend node dependencies (for build tooling) ---
+# --- Backend node dependencies ---
 node_modules/
 
 # --- Testing ---
@@ -76,4 +70,8 @@ coverage/
 # --- Docker ---
 docker-compose.override.yml
 *.pid
+
+# --- Misc ---
 note.md
+*.bak
+*.orig
