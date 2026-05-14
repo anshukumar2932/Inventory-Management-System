@@ -23,6 +23,7 @@ const allNavItems = [
     { label: "Repairs", path: "/repairs", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER", "USER"] },
     { label: "Reports", path: "/reports", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER", "USER"] },
     { label: "Audits", path: "/audits", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER"] },
+    { label: "Service Types", path: "/service-types", roles: ["SUPER_ADMIN", "DEPARTMENT_ADMIN", "MANAGER"] },
 ]
 
 export default function Sidebar() {

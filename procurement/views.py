@@ -3,9 +3,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
-from assets.models import Asset
-from assets.views import IsAuth, IsSuperAdmin
-from notifications.models import Notification
+from assets.views.permissions import IsAuth, IsSuperAdmin
 from .models import ProcurementRequest
 from .serializers import ProcurementRequestSerializer
 
@@ -79,12 +77,7 @@ class ProcurementViewSet(viewsets.ModelViewSet):
         procurement.approved_by = request.user
         procurement.approved_at = timezone.now()
         procurement.save()
-        procurement.assets.all().update(approval_status="APPROVED", status="ACTIVE")
-        Notification.objects.create(
-            user=procurement.requested_by,
-            title="Procurement Approved",
-            message=f"Your procurement request {procurement.request_number} has been approved.",
-        )
+        procurement.save()
         return Response({"message": "Procurement approved successfully"})
 
     @action(detail=True, methods=["POST"], permission_classes=[IsSuperAdmin])
@@ -97,12 +90,7 @@ class ProcurementViewSet(viewsets.ModelViewSet):
         procurement.remarks = remarks
         procurement.rejected_at = timezone.now()
         procurement.save()
-        procurement.assets.all().update(approval_status="REJECTED", status="BLOCKED")
-        Notification.objects.create(
-            user=procurement.requested_by,
-            title="Procurement Rejected",
-            message=f"Your procurement request {procurement.request_number} has been rejected. Remarks: {remarks}",
-        )
+        procurement.save()
         return Response({"message": "Procurement rejected"})
 
 

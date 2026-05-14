@@ -187,7 +187,42 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'accounts.User'
 
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': 'redis://localhost:6379/1',
+        'KEY_PREFIX': 'inv',
+        'TIMEOUT': 300,
+    },
+    'reports': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': 'redis://localhost:6379/2',
+        'KEY_PREFIX': 'inv_rpt',
+        'TIMEOUT': 3600,
+    },
+}
+
 CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_BEAT_SCHEDULE = {
+    'generate-weekly-report': {
+        'task': 'reports.tasks.generate_scheduled_weekly_report',
+        'schedule': timedelta(days=7),
+        'kwargs': {},
+    },
+    'clear-expired-charts': {
+        'task': 'reports.tasks.clear_expired_charts',
+        'schedule': timedelta(hours=1),
+    },
+    'delete-old-reports': {
+        'task': 'reports.tasks.delete_old_reports',
+        'schedule': timedelta(days=1),
+    },
+}
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'

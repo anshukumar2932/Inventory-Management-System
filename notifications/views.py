@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from .models import Notification
+from .serializers import NotificationSerializer
 
 
 class IsAuthNotification(BasePermission):
@@ -12,6 +13,7 @@ class IsAuthNotification(BasePermission):
 
 class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Notification.objects.all()
+    serializer_class = NotificationSerializer
     permission_classes = [IsAuthNotification]
 
     def get_queryset(self):

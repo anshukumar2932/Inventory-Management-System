@@ -138,7 +138,7 @@ export default function Reports() {
                                         <div className="d-flex gap-2 justify-content-center">
                                             {r.pdf_data && (
                                                 <button className="btn btn-sm" style={{
-                                                    border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
+                                                        border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
                                                     borderRadius: "6px", padding: "4px 12px", fontSize: "0.8rem",
                                                 }} onClick={() => handleDownload(r.id, "pdf")}>PDF</button>
                                             )}

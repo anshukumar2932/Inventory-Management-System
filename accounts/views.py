@@ -19,18 +19,6 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
 
-class RegisterView(generics.CreateAPIView):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-    permission_classes = [permissions.AllowAny]
-
-    def perform_create(self, serializer):
-        password = self.request.data.get("password")
-        user = serializer.save()
-        user.set_password(password)
-        user.save()
-
-
 class UserDetailView(generics.RetrieveUpdateAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer
@@ -64,9 +52,6 @@ class UserViewSet(viewsets.ModelViewSet):
         user = serializer.save()
         if request.user.role == "DEPARTMENT_ADMIN":
             user.department = request.user.department
-        password = request.data.get("password")
-        if password:
-            user.set_password(password)
             user.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 

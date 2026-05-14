@@ -40,6 +40,7 @@ class Report(models.Model):
     )
     summary_data = models.JSONField(default=dict, blank=True)
     is_scheduled = models.BooleanField(default=False)
+    task_id = models.CharField(max_length=255, blank=True, null=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

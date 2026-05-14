@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom"
 const DEPT_API = "http://localhost:8000/api/v1/auth/departments/"
 const USER_API = "http://localhost:8000/api/v1/auth/users/"
 const ME_API = "http://localhost:8000/api/v1/auth/me/"
+const SVC_API = "http://localhost:8000/api/v1/assets/service-types/"
+const CAT_API = "http://localhost:8000/api/v1/assets/categories/"
 
 const getRole = () => {
     try { return JSON.parse(localStorage.getItem("user")).role_name }
@@ -38,9 +40,18 @@ export default function Department() {
     const [selectedDept, setSelectedDept] = useState(null)
     const [deptUsers, setDeptUsers] = useState([])
     const [loadingUsers, setLoadingUsers] = useState(false)
+    const [deptServicesList, setDeptServicesList] = useState([])
+    const [editingSvcId, setEditingSvcId] = useState(null)
+    const [editingSvcName, setEditingSvcName] = useState("")
+    const [newSvcName, setNewSvcName] = useState("")
+    const [allCategories, setAllCategories] = useState([])
+    const [editingCatId, setEditingCatId] = useState(null)
+    const [editingCatName, setEditingCatName] = useState("")
+    const [newCatName, setNewCatName] = useState("")
     const [showAddDept, setShowAddDept] = useState(false)
     const [showAddUser, setShowAddUser] = useState(false)
     const [newDeptName, setNewDeptName] = useState("")
+    const [deptServices, setDeptServices] = useState([""])
     const [userForm, setUserForm] = useState({
         username: "", email: "", password: "", role: "USER",
     })
@@ -52,7 +63,15 @@ export default function Department() {
     useEffect(() => {
         if (isUser) { navigate("/dashboard"); return }
         fetchDepartments()
+        fetchCategories()
     }, [])
+
+    const fetchCategories = async () => {
+        const res = await fetch(CAT_API, { headers: headers() })
+        if (!res.ok) return
+        const d = await res.json()
+        setAllCategories(d.results || d)
+    }
 
     const msg = (text, type = "success") => {
         if (type === "success") setSuccess(text); else setError(text)
@@ -74,26 +93,139 @@ export default function Department() {
         setLoadingUsers(false)
     }
 
+    const fetchDeptServices = async (deptId) => {
+        const res = await fetch(`${SVC_API}?department=${deptId}`, { headers: headers() })
+        if (!res.ok) return
+        const d = await res.json()
+        setDeptServicesList(d.results || d)
+    }
+
+    const addService = async (deptId) => {
+        if (!newSvcName.trim()) return
+        const res = await fetch(SVC_API, {
+            method: "POST", headers: headers(),
+            body: JSON.stringify({ name: newSvcName.trim(), department: deptId, description: "", is_global: false }),
+        })
+        if (res.ok) {
+            msg("Service added")
+            setNewSvcName("")
+            fetchDeptServices(deptId)
+            fetchDepartments()
+        } else {
+            const data = await res.json()
+            msg(Object.values(data).flat().join(", "), "error")
+        }
+    }
+
+    const startEditSvc = (svc) => {
+        setEditingSvcId(svc.id)
+        setEditingSvcName(svc.name)
+    }
+
+    const saveSvc = async (deptId) => {
+        if (!editingSvcName.trim()) return
+        const res = await fetch(`${SVC_API}${editingSvcId}/`, {
+            method: "PATCH", headers: headers(),
+            body: JSON.stringify({ name: editingSvcName.trim() }),
+        })
+        if (res.ok) {
+            msg("Service updated")
+            setEditingSvcId(null)
+            setEditingSvcName("")
+            fetchDeptServices(deptId)
+            fetchDepartments()
+        } else {
+            const data = await res.json()
+            msg(Object.values(data).flat().join(", "), "error")
+        }
+    }
+
+    const deleteSvc = async (svc, deptId) => {
+        if (!confirm(`Delete service "${svc.name}"?`)) return
+        const res = await fetch(`${SVC_API}${svc.id}/`, {
+            method: "DELETE", headers: headers(),
+        })
+        if (res.ok) {
+            msg("Service deleted")
+            fetchDeptServices(deptId)
+            fetchDepartments()
+        }
+    }
+
+    const addCategory = async () => {
+        if (!newCatName.trim()) return
+        const res = await fetch(CAT_API, {
+            method: "POST", headers: headers(),
+            body: JSON.stringify({ name: newCatName.trim() }),
+        })
+        if (res.ok) {
+            msg("Category added")
+            setNewCatName("")
+            fetchCategories()
+        } else {
+            const data = await res.json()
+            msg(Object.values(data).flat().join(", "), "error")
+        }
+    }
+
+    const startEditCat = (cat) => {
+        setEditingCatId(cat.id)
+        setEditingCatName(cat.name)
+    }
+
+    const saveCat = async () => {
+        if (!editingCatName.trim()) return
+        const res = await fetch(`${CAT_API}${editingCatId}/`, {
+            method: "PATCH", headers: headers(),
+            body: JSON.stringify({ name: editingCatName.trim() }),
+        })
+        if (res.ok) {
+            msg("Category updated")
+            setEditingCatId(null)
+            setEditingCatName("")
+            fetchCategories()
+        } else {
+            const data = await res.json()
+            msg(Object.values(data).flat().join(", "), "error")
+        }
+    }
+
+    const deleteCat = async (cat) => {
+        if (!confirm(`Delete category "${cat.name}"?`)) return
+        const res = await fetch(`${CAT_API}${cat.id}/`, {
+            method: "DELETE", headers: headers(),
+        })
+        if (res.ok) {
+            msg("Category deleted")
+            fetchCategories()
+        }
+    }
+
     const toggleDept = (dept) => {
         if (selectedDept?.id === dept.id) {
             setSelectedDept(null)
             setDeptUsers([])
+            setDeptServicesList([])
         } else {
             setSelectedDept(dept)
             fetchDeptUsers(dept.id)
+            fetchDeptServices(dept.id)
         }
     }
 
     const addDepartment = async () => {
         if (!newDeptName.trim()) return
+        const services = deptServices.map(s => s.trim()).filter(Boolean)
+        if (services.length === 0) { msg("At least one service is required", "error"); return }
         setError("")
         const res = await fetch(DEPT_API, {
             method: "POST", headers: headers(),
-            body: JSON.stringify({ department_name: newDeptName.trim() }),
+            body: JSON.stringify({ department_name: newDeptName.trim(), services }),
         })
         if (res.ok) {
             msg("Department created")
             setNewDeptName("")
+            setDeptServices([""])
             setShowAddDept(false)
             fetchDepartments()
         } else {
@@ -209,9 +341,36 @@ export default function Department() {
                     <h5 style={{ color: "#e2e8f0", marginBottom: "12px" }}>New Department</h5>
                     <input className="form-control mb-2" placeholder="Department name"
                         value={newDeptName} onChange={(e) => setNewDeptName(e.target.value)} />
+                    <label style={{ color: "#94a3b8", fontSize: "0.8rem", marginBottom: "6px", display: "block" }}>
+                        Services <span style={{ color: "#ef4444" }}>*</span>
+                    </label>
+                    {deptServices.map((svc, idx) => (
+                        <div key={idx} className="d-flex gap-2 mb-2">
+                            <input className="form-control" placeholder="e.g. IT Support, AMC, Warranty"
+                                value={svc} onChange={(e) => {
+                                    const copy = [...deptServices]
+                                    copy[idx] = e.target.value
+                                    setDeptServices(copy)
+                                }} />
+                            {deptServices.length > 1 && (
+                                <button className="btn btn-sm" style={{
+                                    border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
+                                    borderRadius: "6px", padding: "4px 12px", background: "transparent",
+                                }} onClick={() => setDeptServices(deptServices.filter((_, i) => i !== idx))}>✕</button>
+                            )}
+                        </div>
+                    ))}
+                    <button className="btn btn-sm mb-3" style={{
+                        border: "1px solid rgba(6,182,212,0.3)", color: "#06b6d4",
+                        borderRadius: "6px", padding: "4px 12px", background: "transparent",
+                    }} onClick={() => setDeptServices([...deptServices, ""])}>+ Add more</button>
                     <div className="d-flex gap-2">
-                        <button className="btn btn-primary" onClick={addDepartment}>Create</button>
-                        <button className="btn btn-outline-secondary" onClick={() => setShowAddDept(false)}>Cancel</button>
+                        <button className="btn btn-primary" onClick={addDepartment}
+                            disabled={!newDeptName.trim() || deptServices.every(s => !s.trim())}>Create</button>
+                        <button className="btn btn-outline-secondary" onClick={() => {
+                            setShowAddDept(false)
+                            setDeptServices([""])
+                        }}>Cancel</button>
                     </div>
                 </div>
             )}
@@ -271,6 +430,16 @@ export default function Department() {
                                         {dept.department_name}
                                     </h5>
                                     {dept.code && <small style={{ color: "#64748b" }}>{dept.code}</small>}
+                                    {dept.service_names && dept.service_names.length > 0 && (
+                                        <div style={{ marginTop: "4px", display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                                            {dept.service_names.map((sn, i) => (
+                                                <span key={i} style={{
+                                                    background: "rgba(6,182,212,0.12)", color: "#06b6d4",
+                                                    padding: "1px 8px", borderRadius: "4px", fontSize: "0.7rem", fontWeight: 500,
+                                                }}>{sn}</span>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                                 <span style={{ color: "#64748b", fontSize: "0.85rem" }}>
                                     {selectedDept?.id === dept.id ? "▲" : "▼"}
@@ -279,6 +448,9 @@ export default function Department() {
 
                             {selectedDept?.id === dept.id && (
                                 <div style={{ padding: "12px 16px" }}>
+                                    <h6 style={{ color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", fontSize: "0.75rem", marginBottom: "8px" }}>
+                                        Users ({deptUsers.length})
+                                    </h6>
                                     {loadingUsers ? (
                                         <p style={{ color: "#64748b", fontSize: "0.85rem" }}>Loading...</p>
                                     ) : deptUsers.length === 0 ? (
@@ -341,6 +513,138 @@ export default function Department() {
                                                 ))}
                                             </tbody>
                                         </table>
+                                    )}
+
+                                    <hr style={{ borderColor: "rgba(148,163,184,0.1)", margin: "12px 0" }} />
+
+                                    <h6 style={{ color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", fontSize: "0.75rem", marginBottom: "8px" }}>
+                                        Services ({deptServicesList.length})
+                                    </h6>
+                                    {deptServicesList.filter(s => s.department === dept.id).length === 0 ? (
+                                        <p style={{ color: "#64748b", fontSize: "0.85rem" }}>No services for this department</p>
+                                    ) : (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "8px" }}>
+                                            {deptServicesList.filter(s => s.department === dept.id).map((svc) => (
+                                                <div key={svc.id} className="d-flex align-items-center gap-2"
+                                                    style={{ padding: "6px 8px", border: "1px solid rgba(148,163,184,0.1)", borderRadius: "6px" }}>
+                                                    {editingSvcId === svc.id ? (
+                                                        <input className="form-control form-control-sm"
+                                                            value={editingSvcName}
+                                                            onChange={(e) => setEditingSvcName(e.target.value)}
+                                                            onKeyDown={(e) => e.key === "Enter" && saveSvc(dept.id)}
+                                                            style={{ flex: 1 }} autoFocus />
+                                                    ) : (
+                                                        <span style={{ color: "#e2e8f0", fontSize: "0.85rem", flex: 1 }}>{svc.name}</span>
+                                                    )}
+                                                    {isSuper && (
+                                                        <div className="d-flex gap-1">
+                                                            {editingSvcId === svc.id ? (
+                                                                <>
+                                                                    <button className="btn btn-sm" style={{
+                                                                        border: "1px solid rgba(34,197,94,0.3)", color: "#22c55e",
+                                                                        borderRadius: "4px", padding: "2px 8px", fontSize: "0.75rem", background: "transparent",
+                                                                    }} onClick={() => saveSvc(dept.id)}>Save</button>
+                                                                    <button className="btn btn-sm" style={{
+                                                                        border: "1px solid rgba(148,163,184,0.3)", color: "#94a3b8",
+                                                                        borderRadius: "4px", padding: "2px 8px", fontSize: "0.75rem", background: "transparent",
+                                                                    }} onClick={() => { setEditingSvcId(null); setEditingSvcName("") }}>Cancel</button>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <button className="btn btn-sm" style={{
+                                                                        border: "1px solid rgba(6,182,212,0.3)", color: "#06b6d4",
+                                                                        borderRadius: "4px", padding: "2px 8px", fontSize: "0.75rem", background: "transparent",
+                                                                    }} onClick={() => startEditSvc(svc)}>Edit</button>
+                                                                    <button className="btn btn-sm" style={{
+                                                                        border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
+                                                                        borderRadius: "4px", padding: "2px 8px", fontSize: "0.75rem", background: "transparent",
+                                                                    }} onClick={() => deleteSvc(svc, dept.id)}>Del</button>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {isSuper && (
+                                        <div className="d-flex gap-2">
+                                            <input className="form-control form-control-sm" placeholder="New service name"
+                                                value={newSvcName} onChange={(e) => setNewSvcName(e.target.value)}
+                                                onKeyDown={(e) => e.key === "Enter" && addService(dept.id)} />
+                                            <button className="btn btn-sm" style={{
+                                                border: "1px solid rgba(34,197,94,0.3)", color: "#22c55e",
+                                                borderRadius: "6px", padding: "4px 12px", background: "transparent",
+                                            }} onClick={() => addService(dept.id)}
+                                            disabled={!newSvcName.trim()}>+ Add</button>
+                                        </div>
+                                    )}
+
+                                    <hr style={{ borderColor: "rgba(148,163,184,0.1)", margin: "12px 0" }} />
+
+                                    <h6 style={{ color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", fontSize: "0.75rem", marginBottom: "8px" }}>
+                                        Categories ({allCategories.length})
+                                    </h6>
+                                    {allCategories.length === 0 ? (
+                                        <p style={{ color: "#64748b", fontSize: "0.85rem" }}>No categories defined</p>
+                                    ) : (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "8px" }}>
+                                            {allCategories.map((cat) => (
+                                                <div key={cat.id} className="d-flex align-items-center gap-2"
+                                                    style={{ padding: "6px 8px", border: "1px solid rgba(148,163,184,0.1)", borderRadius: "6px" }}>
+                                                    {editingCatId === cat.id ? (
+                                                        <input className="form-control form-control-sm"
+                                                            value={editingCatName}
+                                                            onChange={(e) => setEditingCatName(e.target.value)}
+                                                            onKeyDown={(e) => e.key === "Enter" && saveCat()}
+                                                            style={{ flex: 1 }} autoFocus />
+                                                    ) : (
+                                                        <span style={{ color: "#e2e8f0", fontSize: "0.85rem", flex: 1 }}>{cat.name}</span>
+                                                    )}
+                                                    {isSuper && (
+                                                        <div className="d-flex gap-1">
+                                                            {editingCatId === cat.id ? (
+                                                                <>
+                                                                    <button className="btn btn-sm" style={{
+                                                                        border: "1px solid rgba(34,197,94,0.3)", color: "#22c55e",
+                                                                        borderRadius: "4px", padding: "2px 8px", fontSize: "0.75rem", background: "transparent",
+                                                                    }} onClick={() => saveCat()}>Save</button>
+                                                                    <button className="btn btn-sm" style={{
+                                                                        border: "1px solid rgba(148,163,184,0.3)", color: "#94a3b8",
+                                                                        borderRadius: "4px", padding: "2px 8px", fontSize: "0.75rem", background: "transparent",
+                                                                    }} onClick={() => { setEditingCatId(null); setEditingCatName("") }}>Cancel</button>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <button className="btn btn-sm" style={{
+                                                                        border: "1px solid rgba(6,182,212,0.3)", color: "#06b6d4",
+                                                                        borderRadius: "4px", padding: "2px 8px", fontSize: "0.75rem", background: "transparent",
+                                                                    }} onClick={() => startEditCat(cat)}>Edit</button>
+                                                                    <button className="btn btn-sm" style={{
+                                                                        border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
+                                                                        borderRadius: "4px", padding: "2px 8px", fontSize: "0.75rem", background: "transparent",
+                                                                    }} onClick={() => deleteCat(cat)}>Del</button>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {isSuper && (
+                                        <div className="d-flex gap-2">
+                                            <input className="form-control form-control-sm" placeholder="New category name"
+                                                value={newCatName} onChange={(e) => setNewCatName(e.target.value)}
+                                                onKeyDown={(e) => e.key === "Enter" && addCategory()} />
+                                            <button className="btn btn-sm" style={{
+                                                border: "1px solid rgba(34,197,94,0.3)", color: "#22c55e",
+                                                borderRadius: "6px", padding: "4px 12px", background: "transparent",
+                                            }} onClick={() => addCategory()}
+                                            disabled={!newCatName.trim()}>+ Add</button>
+                                        </div>
                                     )}
                                 </div>
                             )}

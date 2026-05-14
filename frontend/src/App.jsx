@@ -12,6 +12,7 @@ import Layout from "./components/Layout"
 import Location from "./pages/Location"
 import Category from "./pages/Category"
 import Department from "./pages/Department"
+import ServiceTypes from "./pages/ServiceTypes"
 import Procurements from "./pages/Procurements"
 import NewProcurement from "./pages/NewProcurement"
 import ProcurementDetail from "./pages/ProcurementDetail"
@@ -36,6 +37,7 @@ export default function App() {
                     <Route path="/procurements" element={<Procurements />} />
                     <Route path="/procurements/new" element={<NewProcurement />} />
                     <Route path="/procurements/:id" element={<ProcurementDetail />} />
+                    <Route path="/service-types" element={<ServiceTypes />} />
                 </Route>
             </Routes>
         </BrowserRouter>

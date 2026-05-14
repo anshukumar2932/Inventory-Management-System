@@ -3,7 +3,7 @@
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenRefreshView
-from assets.views import dashboard_stats
+from assets.views.dashboard_views import dashboard_stats
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -17,4 +17,5 @@ urlpatterns = [
     path('api/v1/repairs/', include('repairs.urls')),
     path('api/v1/reports/', include('reports.urls')),
     path('api/v1/audits/', include('audits.urls')),
+    path('api/v1/', include('vendors.urls')),
 ]

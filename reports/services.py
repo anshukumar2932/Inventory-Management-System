@@ -171,15 +171,16 @@ def collect_kpi_metrics(user=None):
         .annotate(count=Count('id'))
         .order_by('-count')
     )
-    expiring_details    = list(
-        svc_qs.filter(
+    expiring_details    = [
+        {**ed, 'end_date': str(ed['end_date'])}
+        for ed in svc_qs.filter(
             end_date__gte=today,
             end_date__lte=today + timedelta(days=30),
         ).select_related('asset', 'service_type').values(
             'asset__asset_code', 'asset__asset_name',
             'service_type__name', 'end_date',
         )[:20]
-    )
+    ]
 
     utilisation_rate = round((active / total * 100), 1) if total else 0
     repair_rate      = round((under_repair / total * 100), 1) if total else 0
@@ -904,13 +905,40 @@ def generate_pdf(metrics: dict, charts: dict,
             elements.append(Spacer(1, 12))
 
         exp_details = metrics.get('expiring_details', [])
+        expiring_count = metrics.get('expiring_30', 0)
+        expiring_by_type = metrics.get('expiring_by_type', [])
+
+        if expiring_by_type:
+            elements.append(_section_divider('Services Expiring Soon — Breakdown by Type', S))
+            type_headers = ['Service Type', 'Count']
+            type_data = [type_headers]
+            for et in expiring_by_type:
+                type_data.append([et['service_type__name'], str(et['count'])])
+            type_data.append(['Total', str(expiring_count)])
+            type_t = Table(type_data, colWidths=[250, 100])
+            type_t.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor(RED)),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.HexColor(TEXT)),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(CARD_BG)),
+                ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#334155')),
+                ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#1a1a3a')),
+                ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ]))
+            elements.append(type_t)
+            elements.append(Spacer(1, 10))
+
+        elements.append(_section_divider('Services Expiring in Next 30 Days', S))
         if exp_details:
-            elements.append(_section_divider('Upcoming Expirations (Next 30 Days)', S))
             exp_headers = ['Asset Code', 'Asset', 'Service', 'Expiry', 'Days Left']
             exp_data = [exp_headers]
             today = date.today()
             for ed in exp_details[:15]:
-                exp_d = ed['end_date']
+                exp_d = date.fromisoformat(ed['end_date']) if isinstance(ed['end_date'], str) else ed['end_date']
                 days_left = (exp_d - today).days if exp_d else 0
                 risk = 'CRITICAL' if days_left <= 7 else 'HIGH' if days_left <= 15 else 'WARNING'
                 exp_data.append([
@@ -930,6 +958,11 @@ def generate_pdf(metrics: dict, charts: dict,
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#334155')),
             ]))
             elements.append(exp_t)
+        else:
+            elements.append(Paragraph(
+                f'<para alignment="center"><font color="{MUTED}" size="10">No services are expiring in the next 30 days. All service agreements are current.</font></para>',
+                S['body'],
+            ))
 
         elements.append(PageBreak())
 
@@ -1244,24 +1277,46 @@ def generate_excel(metrics: dict, title: str = "Weekly Report", user=None) -> by
         _data_cell(ws5, 3, 4, metrics['expired_services'], bg=_E_CARD, fg=_E_RED, bold=True)
 
         ws5.merge_cells('A5:E5')
-        h5 = ws5.cell(row=5, column=1, value='UPCOMING EXPIRATIONS')
+        h5 = ws5.cell(row=5, column=1, value='SERVICES EXPIRING IN NEXT 30 DAYS')
         h5.font = _xfont(bold=True, size=11, color=_E_ACCENT)
         h5.fill = _xfill(_E_DARK)
 
+        expiring_by_type = metrics.get('expiring_by_type', [])
+        if expiring_by_type:
+            ws5.merge_cells('A6:B6')
+            h5t = ws5.cell(row=6, column=1, value='Breakdown by Service Type')
+            h5t.font = _xfont(bold=True, size=9, color=_E_MUTED)
+            h5t.fill = _xfill(_E_PANEL)
+            _header_cell(ws5, 7, 1, 'Service Type')
+            _header_cell(ws5, 7, 2, 'Count')
+            for i, et in enumerate(expiring_by_type, start=8):
+                bg = _E_DARK if i % 2 == 0 else _E_CARD
+                _data_cell(ws5, i, 1, et['service_type__name'], bg=bg)
+                _data_cell(ws5, i, 2, et['count'], bg=bg, fg=_E_YELLOW, bold=True)
+            start_row = 8 + len(expiring_by_type) + 1
+        else:
+            start_row = 7
+
         c_hdrs = ['Asset Code', 'Asset Name', 'Service Type', 'Expiry Date', 'Days Left']
         for col, h in enumerate(c_hdrs, 1):
-            _header_cell(ws5, 6, col, h)
+            _header_cell(ws5, start_row, col, h)
 
-        for i, ed in enumerate(metrics.get('expiring_details', []), start=7):
-            exp_d = ed['end_date']
-            dl = (exp_d - date.today()).days if exp_d else 0
-            bg = _E_DARK if i % 2 == 0 else _E_CARD
-            _data_cell(ws5, i, 1, ed['asset__asset_code'], bg=bg)
-            _data_cell(ws5, i, 2, ed['asset__asset_name'][:30], bg=bg)
-            _data_cell(ws5, i, 3, ed['service_type__name'], bg=bg)
-            _data_cell(ws5, i, 4, str(exp_d), bg=bg, fg=_E_MUTED)
-            fg = _E_RED if dl <= 7 else _E_YELLOW if dl <= 15 else _E_ACCENT
-            _data_cell(ws5, i, 5, f"{dl}d", bg=bg, fg=fg, bold=True)
+        exp_details = metrics.get('expiring_details', [])
+        if exp_details:
+            for i, ed in enumerate(exp_details, start=start_row + 1):
+                exp_d = date.fromisoformat(ed['end_date']) if isinstance(ed['end_date'], str) else ed['end_date']
+                dl = (exp_d - date.today()).days if exp_d else 0
+                bg = _E_DARK if i % 2 == 0 else _E_CARD
+                _data_cell(ws5, i, 1, ed['asset__asset_code'], bg=bg)
+                _data_cell(ws5, i, 2, ed['asset__asset_name'][:30], bg=bg)
+                _data_cell(ws5, i, 3, ed['service_type__name'], bg=bg)
+                _data_cell(ws5, i, 4, str(exp_d), bg=bg, fg=_E_MUTED)
+                fg = _E_RED if dl <= 7 else _E_YELLOW if dl <= 15 else _E_ACCENT
+                _data_cell(ws5, i, 5, f"{dl}d", bg=bg, fg=fg, bold=True)
+        else:
+            ws5.merge_cells(start_row=start_row + 1, start_column=1, end_row=start_row + 1, end_column=5)
+            nc = ws5.cell(row=start_row + 1, column=1, value='No services are expiring in the next 30 days.')
+            nc.font = _xfont(size=9, color=_E_MUTED)
 
         for col, w in zip('ABCDE', [16, 30, 18, 14, 12]):
             ws5.column_dimensions[col].width = w
@@ -1275,21 +1330,34 @@ def generate_excel(metrics: dict, title: str = "Weekly Report", user=None) -> by
 # ─────────────────────────────────────────────
 #  ENTRY POINT
 # ─────────────────────────────────────────────
-def generate_weekly_report(user=None):
+def generate_weekly_report(user=None, report=None):
     metrics     = collect_kpi_metrics(user=user)
     charts      = generate_charts(metrics)
-    pdf_data    = generate_pdf(metrics, charts, title=f"Weekly Executive Report — {date.today().strftime('%B %d, %Y')}", user=user)
+    ts = __import__('datetime').datetime.now().strftime('%B %d, %Y %I:%M %p')
+    pdf_data    = generate_pdf(metrics, charts, title=f"Weekly Executive Report — {ts}", user=user)
     excel_data  = generate_excel(metrics, user=user)
 
-    report = Report.objects.create(
-        title=f"Weekly Executive Report — {date.today().strftime('%B %d, %Y')}",
-        report_type='WEEKLY',
-        generated_by=user,
-        department=user.department if user and user.department else None,
-        summary_data=metrics,
-        is_scheduled=(user is None),
-        pdf_data=pdf_data,
-        excel_data=excel_data,
-        chart_data=charts.get('asset_status', b''),
-    )
+    if report is None:
+        report = Report.objects.create(
+            title=f"Weekly Executive Report — {ts}",
+            report_type='WEEKLY',
+            generated_by=user,
+            department=user.department if user and user.department else None,
+            summary_data=metrics,
+            is_scheduled=(user is None),
+            pdf_data=pdf_data,
+            excel_data=excel_data,
+            chart_data=charts.get('asset_status', b''),
+        )
+    else:
+        report.title = f"Weekly Executive Report — {ts}"
+        report.report_type = 'WEEKLY'
+        report.generated_by = user
+        report.department = user.department if user and user.department else None
+        report.summary_data = metrics
+        report.is_scheduled = (user is None)
+        report.pdf_data = pdf_data
+        report.excel_data = excel_data
+        report.chart_data = charts.get('asset_status', b'')
+        report.save()
     return report

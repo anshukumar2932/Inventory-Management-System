@@ -1,11 +1,12 @@
 // Main asset management page
 // Lists assets in a table with search, filter, and full CRUD
-import React, { useState, useEffect, useRef } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import BarcodeScanner from "../components/BarcodeScanner"
 
 // Assets API base — note the double "assets" comes from the router prefix
 const API = "http://localhost:8000/api/v1/assets"
+const SVC_API = "http://localhost:8000/api/v1/assets/asset-services"
 const getRole = () => {
     try {
         return JSON.parse(localStorage.getItem("user")).role_name
@@ -35,6 +36,10 @@ export default function Assets() {
     const [locations, setLocations] = useState([])
     const [departments, setDepartments] = useState([])
     const [vendors, setVendors] = useState([])
+    const [serviceTypes, setServiceTypes] = useState([])
+    const [availabilities, setAvailabilities] = useState([])
+    const [formServices, setFormServices] = useState([])
+    const servicesToDelete = useRef([])
     const [search, setSearch] = useState("")
     // Filter dropdowns — each maps to a query param the backend understands
     const [filterStatus, setFilterStatus] = useState("")
@@ -47,6 +52,8 @@ export default function Assets() {
     const [form, setForm] = useState(emptyForm)
     const [editingId, setEditingId] = useState(null)
     const [showForm, setShowForm] = useState(false)
+    const [saving, setSaving] = useState(false)
+    const [formError, setFormError] = useState("")
     const [docUploading, setDocUploading] = useState(false)
     const [pendingDoc, setPendingDoc] = useState(null)
     const docInputRef = useRef(null)
@@ -60,9 +67,11 @@ export default function Assets() {
         navigate("/")
     }
 
-    const handleResponse = (r) => {
+    const handleResponse = async (r) => {
         if (r.status === 401) { handleUnauth(); throw new Error("Unauthorized") }
-        return r.json()
+        const data = await r.json()
+        if (!r.ok) throw { status: r.status, data }
+        return data
     }
 
     // Build the URL with all active search/filter params
@@ -84,18 +93,21 @@ export default function Assets() {
             .then((d) => setAssets(d.results))
 
     // Fetch the lookup data (categories, locations, etc.) once on mount
-    const fetchLookups = () =>
-        Promise.all([
-            fetch(`${API}/categories/`, { headers: headers() }).then(handleResponse),
-            fetch(`${API}/locations/`, { headers: headers() }).then(handleResponse),
-            fetch(`http://localhost:8000/api/v1/auth/departments/`, { headers: headers() }).then(handleResponse),
-            fetch(`${API}/vendors/`, { headers: headers() }).then(handleResponse),
-        ]).then(([c, l, d, v]) => {
-            setCategories(c.results || c)
-            setLocations(l.results || l)
-            setDepartments(d.results || d)
-            setVendors(v.results || v)
-        })
+    // Each lookup is independent so one failure doesn't block the others
+    const fetchLookups = () => {
+        fetch(`${API}/categories/`, { headers: headers() })
+            .then(handleResponse).then(c => setCategories(c.results || c)).catch(() => {})
+        fetch(`${API}/locations/`, { headers: headers() })
+            .then(handleResponse).then(l => setLocations(l.results || l)).catch(() => {})
+        fetch(`http://localhost:8000/api/v1/auth/departments/`, { headers: headers() })
+            .then(handleResponse).then(d => setDepartments(d.results || d)).catch(() => {})
+        fetch(`${API}/vendors/`, { headers: headers() })
+            .then(handleResponse).then(v => setVendors(v.results || v)).catch(() => {})
+        fetch(`${API}/service-types/`, { headers: headers() })
+            .then(handleResponse).then(st => setServiceTypes(st.results || st)).catch(() => {})
+        fetch(`${API}/availabilities/`, { headers: headers() })
+            .then(handleResponse).then(av => setAvailabilities(av.results || av)).catch(() => {})
+    }
 
     useEffect(() => {
         fetchAssets()
@@ -107,6 +119,34 @@ export default function Assets() {
         const timer = setTimeout(() => fetchAssets(), 300)
         return () => clearTimeout(timer)
     }, [search, filterStatus, filterCategory, filterLocation, filterDepartment])
+
+    let localKeyCounter = 0
+    const nextLocalKey = () => `svc_${++localKeyCounter}_${Date.now()}`
+
+    const emptyService = () => ({
+        _key: nextLocalKey(), id: null, service_type: "", provider: "",
+        availability: "", start_date: "", end_date: "",
+        status: "ACTIVE", remarks: "",
+    })
+
+    const addFormService = () => setFormServices([...formServices, emptyService()])
+
+    const updateFormService = (key, field, value) =>
+        setFormServices(formServices.map(s => s._key === key ? { ...s, [field]: value } : s))
+
+    const loadAssetServices = async (assetId) => {
+        const res = await fetch(`${SVC_API}/?asset=${assetId}`, { headers: headers() })
+        if (!res.ok) return
+        const d = await res.json()
+        const list = (d.results || d).map(s => ({
+            _key: `svc_${s.id}`, id: s.id,
+            service_type: s.service_type, provider: s.provider || "",
+            availability: s.availability || "",
+            start_date: s.start_date, end_date: s.end_date,
+            status: s.status, remarks: s.remarks || "",
+        }))
+        setFormServices(list)
+    }
 
     const handleQuickCreate = async () => {
         if (!search.trim()) return
@@ -126,8 +166,44 @@ export default function Assets() {
     const handleChange = (e) =>
         setForm({ ...form, [e.target.name]: e.target.value })
 
+    const saveServices = async (assetId) => {
+        const results = []
+        for (const svc of formServices) {
+            const body = {
+                asset: assetId, service_type: parseInt(svc.service_type),
+                provider: svc.provider ? parseInt(svc.provider) : null,
+                availability: svc.availability ? parseInt(svc.availability) : null,
+                start_date: svc.start_date, end_date: svc.end_date,
+                status: svc.status, remarks: svc.remarks || "",
+            }
+            const url = svc.id ? `${SVC_API}/${svc.id}/` : `${SVC_API}/`
+            const method = svc.id ? "PATCH" : "POST"
+            const res = await fetch(url, { method, headers: headers(), body: JSON.stringify(body) })
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}))
+                results.push(`Service #${formServices.indexOf(svc) + 1}: ${Object.values(data).flat().join(", ")}`)
+            }
+        }
+        return results
+    }
+
+    const removeFormService = (key) => {
+        const svc = formServices.find(s => s._key === key)
+        if (svc?.id) servicesToDelete.current.push(svc.id)
+        setFormServices(formServices.filter(s => s._key !== key))
+    }
+
     const handleSubmit = async (e) => {
         e.preventDefault()
+        setSaving(true)
+        setFormError("")
+
+        if (!form.asset_name.trim()) {
+            setFormError("Asset name is required")
+            setSaving(false)
+            return
+        }
+
         const body = { ...form }
         body.remarks = body.remarks || ""
         body.category = parseInt(body.category)
@@ -145,17 +221,44 @@ export default function Assets() {
             headers: headers(),
             body: JSON.stringify(body),
         })
-        if (res.ok) {
-            const asset = await res.json()
-            if (!editingId && pendingDoc) {
-                await uploadDoc(asset.id)
-                setPendingDoc(null)
-            }
-            setShowForm(false)
-            setEditingId(null)
-            setForm(emptyForm)
-            fetchAssets()
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}))
+            setFormError(Object.values(data).flat().join(", ") || "Failed to save asset")
+            setSaving(false)
+            return
         }
+
+        const asset = await res.json()
+        const assetId = asset.id || editingId
+
+        // Delete removed services
+        for (const id of servicesToDelete.current) {
+            await fetch(`${SVC_API}/${id}/`, { method: "DELETE", headers: headers() })
+        }
+        servicesToDelete.current = []
+
+        // Save services — collect any errors
+        if (formServices.length > 0) {
+            const svcErrors = await saveServices(assetId)
+            if (svcErrors.length > 0) {
+                setFormError("Asset saved but some services failed: " + svcErrors.join("; "))
+                setSaving(false)
+                return
+            }
+        }
+
+        if (!editingId && pendingDoc) {
+            await uploadDoc(assetId)
+            setPendingDoc(null)
+        }
+        setShowForm(false)
+        setEditingId(null)
+        setForm(emptyForm)
+        setFormServices([])
+        setSaving(false)
+        fetchAssets()
+        setPopup("Asset saved")
+        setTimeout(() => setPopup(""), 2500)
     }
 
     const handleEdit = (asset) => {
@@ -178,6 +281,7 @@ export default function Assets() {
         })
         setEditingId(asset.id)
         setShowForm(true)
+        loadAssetServices(asset.id)
     }
 
     const handleDelete = async (id) => {
@@ -227,6 +331,7 @@ export default function Assets() {
     const openCreate = () => {
         setForm(emptyForm)
         setEditingId(null)
+        setFormServices([])
         setShowForm(true)
     }
 
@@ -244,7 +349,8 @@ export default function Assets() {
     // Look up the display name from a list of objects by ID
     // Handles different key names (name, vendor_name, department_name) across models
     const lookupName = (list, id) => {
-        const item = list.find((i) => i.id === id)
+        if (!id) return "-"
+        const item = list.find((i) => i.id == id)
         return item ? (item.name || item.vendor_name || item.department_name) : "-"
     }
 
@@ -365,6 +471,13 @@ export default function Assets() {
                     <h5 style={{ color: "#e2e8f0", marginBottom: "16px" }}>
                         {editingId ? "Edit Asset" : "New Asset"}
                     </h5>
+                    {formError && (
+                        <div style={{
+                            background: "rgba(239,68,68,0.1)", color: "#ef4444",
+                            padding: "8px 12px", borderRadius: 6, marginBottom: 12,
+                            fontSize: "0.85rem",
+                        }}>{formError}</div>
+                    )}
                     <form onSubmit={handleSubmit}>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
                             <div className="mb-2" style={{ flex: "1 1 200px" }}>
@@ -425,9 +538,89 @@ export default function Assets() {
                                     value={form.remarks} onChange={handleChange} />
                             </div>
                         </div>
+
+                        <hr style={{ borderColor: "rgba(148,163,184,0.15)", margin: "16px 0" }} />
+                        <h6 style={{ color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", fontSize: "0.75rem", marginBottom: "10px" }}>
+                            Services ({formServices.length})
+                        </h6>
+                        {formServices.map((svc, idx) => (
+                            <div key={svc._key} style={{
+                                padding: "10px", marginBottom: "8px",
+                                border: "1px solid rgba(148,163,184,0.12)", borderRadius: "8px",
+                            }}>
+                                <div className="d-flex justify-content-between align-items-center mb-2">
+                                    <span style={{ color: "#64748b", fontSize: "0.8rem", fontWeight: 600 }}>Service #{idx + 1}</span>
+                                    <button type="button" className="btn btn-sm" style={{
+                                        border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
+                                        borderRadius: "4px", padding: "2px 8px", fontSize: "0.75rem", background: "transparent",
+                                    }} onClick={() => removeFormService(svc._key)}>Remove</button>
+                                </div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                                    <div style={{ flex: "1 1 200px" }}>
+                                        <label className="form-label" style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Service Type</label>
+                                        <select className="form-control form-control-sm" value={svc.service_type}
+                                            onChange={(e) => updateFormService(svc._key, "service_type", e.target.value)} required>
+                                            <option value="">-- Select --</option>
+                                            {serviceTypes.map((st) => (
+                                                <option key={st.id} value={st.id}>{st.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div style={{ flex: "1 1 200px" }}>
+                                        <label className="form-label" style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Provider</label>
+                                        <select className="form-control form-control-sm" value={svc.provider}
+                                            onChange={(e) => updateFormService(svc._key, "provider", e.target.value)}>
+                                            <option value="">-- None --</option>
+                                            {vendors.map((v) => (
+                                                <option key={v.id} value={v.id}>{v.vendor_name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div style={{ flex: "1 1 200px" }}>
+                                        <label className="form-label" style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Availability</label>
+                                        <select className="form-control form-control-sm" value={svc.availability}
+                                            onChange={(e) => updateFormService(svc._key, "availability", e.target.value)}>
+                                            <option value="">-- Select --</option>
+                                            {availabilities.map((a) => (
+                                                <option key={a.id} value={a.id}>{a.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div style={{ flex: "0 1 150px" }}>
+                                        <label className="form-label" style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Start Date</label>
+                                        <input type="date" className="form-control form-control-sm" value={svc.start_date}
+                                            onChange={(e) => updateFormService(svc._key, "start_date", e.target.value)} required />
+                                    </div>
+                                    <div style={{ flex: "0 1 150px" }}>
+                                        <label className="form-label" style={{ fontSize: "0.75rem", color: "#94a3b8" }}>End Date</label>
+                                        <input type="date" className="form-control form-control-sm" value={svc.end_date}
+                                            onChange={(e) => updateFormService(svc._key, "end_date", e.target.value)} required />
+                                    </div>
+                                    <div style={{ flex: "0 1 130px" }}>
+                                        <label className="form-label" style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Status</label>
+                                        <select className="form-control form-control-sm" value={svc.status}
+                                            onChange={(e) => updateFormService(svc._key, "status", e.target.value)}>
+                                            <option value="ACTIVE">Active</option>
+                                            <option value="EXPIRED">Expired</option>
+                                            <option value="PENDING">Pending</option>
+                                        </select>
+                                    </div>
+                                    <div style={{ flex: "1 1 200px" }}>
+                                        <label className="form-label" style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Remarks</label>
+                                        <input className="form-control form-control-sm" value={svc.remarks}
+                                            onChange={(e) => updateFormService(svc._key, "remarks", e.target.value)} />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                        <button type="button" className="btn btn-sm mb-3" style={{
+                            border: "1px solid rgba(6,182,212,0.3)", color: "#06b6d4",
+                            borderRadius: "6px", padding: "4px 14px", background: "transparent",
+                        }} onClick={addFormService}>+ Add Service</button>
+
                         <div className="mt-3 d-flex gap-2">
-                            <button type="submit" className="btn btn-primary">
-                                {editingId ? "Update" : "Create"}
+                            <button type="submit" className="btn btn-primary" disabled={saving}>
+                                {saving ? "Saving..." : editingId ? "Update" : "Create"}
                             </button>
                             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                                 <input ref={docInputRef} type="file" style={{ display: "none" }}
@@ -440,7 +633,7 @@ export default function Assets() {
                             <button type="button" className="btn" style={{
                                 border: "1px solid rgba(148,163,184,0.3)", color: "#94a3b8",
                                 borderRadius: "8px", padding: "8px 20px",
-                            }} onClick={() => { setShowForm(false); setEditingId(null); }}>
+                            }} onClick={() => { setShowForm(false); setEditingId(null); setFormServices([]); servicesToDelete.current = []; setFormError(""); }} disabled={saving}>
                                 Cancel
                             </button>
                         </div>

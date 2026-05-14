@@ -4,10 +4,12 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.http import HttpResponse, Http404
+from celery.result import AsyncResult
 
 from .models import Report
 from .serializers import ReportListSerializer, ReportDetailSerializer
-from .services import generate_weekly_report
+from .tasks import generate_report_task, send_report_email_task
+from .services import collect_kpi_metrics
 
 
 class ReportViewSet(viewsets.ReadOnlyModelViewSet):
@@ -31,9 +33,48 @@ class ReportViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['POST'])
     def generate(self, request):
         user = request.user
-        report = generate_weekly_report(user=user)
-        serializer = self.get_serializer(report)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        report = Report.objects.create(
+            title=f"Weekly Executive Report — {__import__('datetime').datetime.now().strftime('%B %d, %Y %I:%M %p')}",
+            report_type='WEEKLY',
+            status='GENERATING',
+            generated_by=user,
+            department=user.department if user and user.department else None,
+            is_scheduled=False,
+        )
+        task = generate_report_task.delay(user_id=user.id, report_id=report.id)
+        report.task_id = task.id
+        report.save(update_fields=['task_id'])
+        return Response(
+            {"report_id": report.id, "task_id": task.id},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @action(detail=True, methods=['GET'])
+    def status(self, request, pk=None):
+        report = self.get_object()
+        task_id = report.task_id
+        task_status = None
+        if task_id:
+            result = AsyncResult(task_id)
+            task_status = result.state
+
+        return Response({
+            "report_id": report.id,
+            "report_status": report.status,
+            "task_id": task_id,
+            "task_status": task_status,
+            "title": report.title,
+            "created_at": report.created_at,
+        })
+
+    @action(detail=True, methods=['POST'])
+    def send_email(self, request, pk=None):
+        report = self.get_object()
+        task = send_report_email_task.delay(report_id=report.id)
+        return Response(
+            {"task_id": task.id, "message": "Email sending initiated"},
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @action(detail=True, methods=['GET'])
     def download_pdf(self, request, pk=None):
@@ -63,8 +104,16 @@ class ReportViewSet(viewsets.ReadOnlyModelViewSet):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def latest_kpi(request):
+    from django.core.cache import caches
+    report_cache = caches['reports']
+    user = request.user
+    cache_key = f"kpi:{user.id}:{user.role}"
+    cached = report_cache.get(cache_key)
+    if cached is not None:
+        return Response(cached)
     from .services import collect_kpi_metrics
-    metrics = collect_kpi_metrics(user=request.user)
+    metrics = collect_kpi_metrics(user=user)
+    report_cache.set(cache_key, metrics, 3600)
     return Response(metrics)
 
 
